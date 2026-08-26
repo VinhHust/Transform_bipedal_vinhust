@@ -11,8 +11,14 @@ Có **hai repo khác nhau** trên GitHub, dù nội dung gần giống nhau:
 
 | Tên gọi trong tài liệu | URL | Chủ sở hữu | Vai trò |
 |---|---|---|---|
-| **repo chính** | `github.com/khacnambn/Transform_bipedal` | Nam | Nguồn chân lý. Code cuối cùng nằm ở đây. |
-| **fork** | `github.com/VinhHust/Transform_bipedal` | Vinh | Sân chơi của Minh + Vinh. Code nháp, thử nghiệm nằm ở đây. |
+| **repo chính** | `github.com/khacnambn/TransformBipedal_Firmware` | Nam | Nguồn chân lý. Code cuối cùng nằm ở đây. |
+| **fork** | `github.com/VinhHust/Transform_bipedal_vinhust` | Vinh | Sân chơi của Minh + Vinh. Code nháp, thử nghiệm nằm ở đây. |
+
+> Hai cái tên dễ nhầm:
+> - Repo chính từng tên là `Transform_bipedal`, Nam đã đổi thành `TransformBipedal_Firmware`.
+>   GitHub giữ tên cũ làm redirect nên **cả hai URL đều chạy** — cùng một repo, không phải hai.
+> - Fork của Vinh **không cùng tên** với repo gốc. GitHub cho phép đổi tên fork, nên đừng đoán
+>   URL fork từ tên repo gốc. Muốn tìm: `gh repo list <tên-người> --fork`
 
 **Fork không phải là một nhánh.** Nó là một repo độc lập hoàn toàn, chỉ tình cờ chung lịch sử commit
 với repo chính. Đây là điểm hay gây nhầm lẫn nhất.
@@ -30,43 +36,93 @@ trong một thư mục code. Quy ước tên remote trong tài liệu này:
 
 **Nhánh chung:** `dev_team` — nằm trên **fork**, cả hai cùng push/pull vào đây.
 
-> Tại sao là `dev_team` mới chứ không dùng lại `dev_vinh`?
-> Vì `dev_vinh` đang mang lịch sử đã bị revert ở PR #4 trên repo chính.
-> Bắt đầu lại từ `main` sạch sẽ giúp tránh phải xử lý mớ revert đó lúc gộp cuối.
+### Luồng 3 tầng
+
+```
+VinhHust/...:dev_team     ← Minh + Vinh push hằng ngày.
+        │                   Thoải mái, hỏng cũng không ảnh hưởng ai.
+        │  PR khi xong một mảng việc
+        ▼
+khacnambn:dev_team        ← nhánh tích hợp trên repo Nam.
+        │                   Nam thấy được tiến độ, nhưng main vẫn an toàn.
+        │  PR khi hoàn thiện — Nam review
+        ▼
+khacnambn:main            ← chỉ code đã duyệt
+```
+
+Tầng giữa là thứ đáng giá nhất: Nam nhìn được hai bạn đang làm gì mà `main` không chịu
+rủi ro nào. Về kỹ thuật thì tầng này không bắt buộc, nhưng nó rẻ và tránh được đúng
+kiểu tai nạn đã xảy ra ở PR #2 (merge thẳng vào `main`, phải revert).
+
+### Tại sao `dev_team` mới, không dùng lại `dev_vinh`
+
+Không phải vì code trong `dev_vinh` hỏng — code nó sạch và chạy được. Lý do nằm ở
+**điểm rẽ nhánh**:
+
+```
+                 điểm rẽ khỏi main    main đã đi thêm    merge vào main
+vinh/dev_vinh    1b8e55c          →   3 commit       →   20 CONFLICT
+dev_team         74de25e          →   0 commit       →   0 conflict (fast-forward)
+```
+
+`dev_vinh` rẽ ra từ lâu, và sau đó `main` đi thêm 3 bước — trong đó có đúng cái revert
+xoá sạch thư mục của Vinh. Hai bên cùng đụng một chỗ → Git phải hỏi từng file.
+
+`dev_team` rẽ ra ngay tại đỉnh `main` hiện tại, nên `main` đứng yên hoàn toàn kể từ đó.
+Không có gì để mâu thuẫn. Xem thêm mục C0.
 
 ---
 
-## PHẦN A — Việc cần làm BÂY GIỜ (setup một lần duy nhất)
+## PHẦN A — Setup một lần duy nhất
 
-### A0. Vinh cấp quyền cho Minh — *Vinh làm, Minh không tự làm được*
+> **Trạng thái tính đến 26/08/2026:** Minh đã xong toàn bộ Phần A — nhánh `dev_team`
+> đã tạo và đẩy lên fork. Vinh chỉ còn phải làm **A2**.
+
+### A0. Vinh cấp quyền cho Minh — *Vinh làm, Minh không tự làm được* ✅ xong
 
 Không có bước này thì Minh chỉ **đọc** được fork, **không push** được.
 
-Vinh vào `github.com/VinhHust/Transform_bipedal` → tab **Settings** → mục **Collaborators**
-→ **Add people** → nhập username GitHub của Minh.
+Vinh vào `github.com/VinhHust/Transform_bipedal_vinhust` → tab **Settings** → mục
+**Collaborators** → **Add people** → nhập username GitHub của Minh (`cat2I`).
 
 Minh nhận lời mời qua email, hoặc vào thẳng
-`github.com/VinhHust/Transform_bipedal/invitations` bấm **Accept**.
+`github.com/VinhHust/Transform_bipedal_vinhust/invitations` bấm **Accept**.
+
+Kiểm tra đã có quyền chưa:
+
+```bash
+gh api repos/VinhHust/Transform_bipedal_vinhust --jq .permissions.push
+# true = push được
+```
 
 ---
 
-### A1. Minh — thiết lập máy
+### A1. Minh — thiết lập máy ✅ xong
 
 ```bash
 cd ~/Documents/projects/Transformer/Transform_bipedal
 
-# 1. Cập nhật main mới nhất từ repo Nam (local đang chậm 16 commit)
+# 0. Đăng nhập GitHub cho git — KHÔNG CÓ BƯỚC NÀY THÌ KHÔNG PUSH ĐƯỢC
+gh auth login
+#   GitHub.com -> HTTPS -> Y (authenticate Git) -> Login with a web browser
+#   Bước "authenticate Git with your GitHub credentials" mới là bước quan trọng:
+#   nó cài credential helper cho git. Bỏ qua thì pull được nhưng push luôn hỏng.
+
+# 1. Cập nhật main mới nhất từ repo Nam
 git switch main
 git pull origin main
+#   LƯU Ý: git pull đổ code vào nhánh ĐANG ĐỨNG, không phải nhánh ghi trong lệnh.
+#   Chữ "main" ở đây chỉ có nghĩa "lấy nhánh main TỪ SERVER".
+#   Đứng ở dev_team mà chạy lệnh này là merge main vào dev_team — sai ý.
 
 # 2. Thêm remote trỏ tới fork của Vinh
-git remote add vinh https://github.com/VinhHust/Transform_bipedal.git
+git remote add vinh https://github.com/VinhHust/Transform_bipedal_vinhust.git
 git fetch vinh
 
 # 3. Kiểm tra — phải thấy CẢ HAI remote
 git remote -v
-#   origin  https://github.com/khacnambn/Transform_bipedal.git (fetch/push)
-#   vinh    https://github.com/VinhHust/Transform_bipedal.git  (fetch/push)
+#   origin  .../khacnambn/Transform_bipedal.git           (fetch/push)
+#   vinh    .../VinhHust/Transform_bipedal_vinhust.git    (fetch/push)
 
 # 4. Tạo nhánh chung, xuất phát từ main sạch của Nam
 git switch -c dev_team origin/main
@@ -82,23 +138,28 @@ trống không, Git tự hiểu là đẩy lên `vinh/dev_team`.
 
 ---
 
-### A2. Vinh — thiết lập máy
+### A2. Vinh — thiết lập máy ⬜ **CHƯA LÀM**
 
 ```bash
 cd <thư-mục-code-của-Vinh>
 
 # 1. Thêm remote trỏ tới repo chính của Nam (nếu chưa có)
-git remote add upstream https://github.com/khacnambn/Transform_bipedal.git
+git remote add upstream https://github.com/khacnambn/TransformBipedal_Firmware.git
 
 # 2. Kiểm tra
 git remote -v
-#   origin    https://github.com/VinhHust/Transform_bipedal.git   <- fork của mình
-#   upstream  https://github.com/khacnambn/Transform_bipedal.git  <- repo Nam
+#   origin    .../VinhHust/Transform_bipedal_vinhust.git      <- fork của mình
+#   upstream  .../khacnambn/TransformBipedal_Firmware.git     <- repo Nam
 
-# 3. Lấy nhánh chung mà Minh vừa tạo
+# 3. Lấy nhánh chung mà Minh đã tạo
 git fetch origin
 git switch -c dev_team --track origin/dev_team
 ```
+
+Sau đó **đóng PR #5** (bấm Close, KHÔNG merge). Hai commit `fixUI` và `update walking gait`
+của nó đã nằm sẵn trong `dev_team` rồi. Để PR mở chỉ gây nhầm lẫn.
+
+Từ đây trở đi cả hai chỉ dùng `dev_team`. Bỏ hẳn `dev_vinh`.
 
 ---
 
@@ -230,27 +291,67 @@ Chỉ **một người** làm bước này rồi báo người kia `git pull --r
 
 ---
 
-### B5. Khi cả hai thống nhất là xong → gộp vào repo Nam
+### B5. Khi cả hai thống nhất là xong → gộp lên repo Nam
 
-Lên GitHub bấm **New pull request**, chọn:
+Chạy B4 một lần cuối trước đã, để PR không bị báo conflict.
 
-- **base repository**: `khacnambn/Transform_bipedal` — **base**: `main`
-- **head repository**: `VinhHust/Transform_bipedal` — **compare**: `dev_team`
-
-Hoặc bằng CLI (chạy trên máy nào cũng được):
+**Tầng 1 — fork → nhánh tích hợp trên repo Nam:**
 
 ```bash
-gh pr create --repo khacnambn/Transform_bipedal \
-  --base main --head VinhHust:dev_team \
+gh pr create --repo khacnambn/TransformBipedal_Firmware \
+  --base dev_team --head VinhHust:dev_team \
   --title "Dev: <tóm tắt thành quả>" \
   --body "Tổng hợp công việc của Minh và Vinh: ..."
 ```
 
-Sau đó Nam review và merge. Trước khi mở PR, nên chạy B4 một lần cuối để PR không bị báo conflict.
+**Tầng 2 — nhánh tích hợp → `main`, Nam review.** Ở tầng này **tách làm hai PR**:
+
+| PR | Nội dung | Nam review |
+|---|---|---|
+| A | `Dev_Vinh_Minh/`, `docs/`, file test riêng | Duyệt nhanh, gần như không rủi ro |
+| B | `bipedal_nam/**`, `examples_client/**` | Đọc kỹ — đây là code của Nam |
+
+PR #2 hỏng chính vì gộp cả hai làm một cục. Tách ra thì Nam duyệt A trong 2 phút,
+còn B thì soi kỹ. Đừng bao giờ để một PR vừa thêm code mới vừa sửa code người khác.
 
 ---
 
 ## PHẦN C — CẤM KỊ (làm là hỏng, có cái không cứu được)
+
+### C0. ❌ KHÔNG gộp một nhánh cũ thẳng vào `main`
+
+Đây là cái bẫy đã cắn nhóm một lần rồi (PR #2 → phải revert ở PR #4), và là cái khó
+nhìn ra nhất, nên để đầu danh sách.
+
+**Git khi merge KHÔNG so sánh nội dung hai nhánh.** Nó tìm **điểm rẽ nhánh chung**
+(merge base), rồi hỏi: *"từ điểm đó tới giờ, mỗi bên đã làm gì?"*
+Conflict xảy ra khi **cả hai bên cùng đụng vào một chỗ**.
+
+Nên một nhánh có code hoàn hảo vẫn có thể merge ra thảm hoạ, nếu nó rẽ ra quá lâu rồi:
+
+```
+                 điểm rẽ khỏi main    main đã đi thêm    kết quả merge
+vinh/dev_vinh    1b8e55c          →   3 commit       →   20 CONFLICT
+dev_team         74de25e          →   0 commit       →   0 conflict
+```
+
+Cách tự kiểm tra **trước khi** mở PR — chạy thử mà không đụng gì tới code:
+
+```bash
+git fetch origin
+git merge-tree --write-tree --name-only origin/main HEAD >/dev/null && \
+  echo "SẠCH, mở PR được" || echo "SẼ CÓ CONFLICT, chạy B4 trước đã"
+```
+
+**Cách phòng:** chạy B4 đều đặn (2–3 ngày/lần). Nguyên tắc chung —
+**conflict tỉ lệ thuận với thời gian hai nhánh không nói chuyện với nhau.**
+
+> Trường hợp đặc biệt nguy hiểm: nếu công việc của bạn **từng bị revert** trên `main`,
+> Git coi các commit đó là "đã merge rồi" và sẽ không mang nội dung về nữa.
+> Phải tạo một commit đảo ngược cái revert: `git revert --no-edit <hash-cua-commit-revert>`
+> — làm trên `dev_team`, KHÔNG làm trên `main`.
+
+---
 
 ### C1. ❌ KHÔNG BAO GIỜ `git push --force` lên `dev_team`
 
@@ -364,6 +465,8 @@ git status
 | Đang rebase mà rối, muốn thoát | `git rebase --abort` |
 | Xem lịch sử gọn | `git log --oneline --graph -20` |
 | Đồng bộ với main của Nam | xem mục B4 |
+| Kiểm tra trước khi mở PR | xem mục C0 |
+| Xem nhánh mình rẽ ra từ đâu | `git merge-base origin/main HEAD` |
 
 ---
 
