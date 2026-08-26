@@ -32,6 +32,27 @@ class DualLegGait:
         """Create controller for one leg"""
         return SingleLegController(host, port, side)
 
+    def send_both(self, pos_r: list, pos_l: list) -> bool:
+        """
+        Ban lenh cho CA HAI chan roi moi thu 2 cau tra loi.
+
+        Truoc day code goi send_command() lan luot: chan trai chi duoc gui lenh
+        SAU KHI Pi phai da ghi xong 6 servo va tra loi ve (~10-40ms). Nay 2 lenh
+        di lien tiep nhau, do lech con lai chi la 1 lan send_json (~duoi 1ms).
+
+        ZMQ REQ bat buoc send/recv xen ke tren TUNG socket, nhung day la 2 socket
+        doc lap nen ban lien tiep hoan toan hop le.
+        """
+        ok_r = self.right.send_only(pos_r)
+        ok_l = self.left.send_only(pos_l)
+
+        # Phai thu dung so tra loi cho so lenh da ban, neu khong socket REQ
+        # se ket o trang thai "dang cho reply" va moi lenh sau deu hong.
+        ack_r = self.right.recv_ack() if ok_r else False
+        ack_l = self.left.recv_ack() if ok_l else False
+
+        return ok_r and ok_l and ack_r and ack_l
+
     def go_home_both(self):
         """Về home position cho cả 2 chân"""
         print("\n" + "=" * 70)
@@ -60,8 +81,8 @@ class DualLegGait:
         right_angles: dict,
         left_angles: dict,
         num_cycles: int = 5,
-        hip_swing_range: float = 15,
-        knee_swing_range: float = 20,
+        hip_swing_range: float = 13,
+        knee_swing_range: float = 18,
     ):
         """
         Synchronized swing gait cho cả 2 chân
@@ -112,11 +133,8 @@ class DualLegGait:
                 pos_l[3] = self.left.degree_to_ticks(7, knee_deg_l)
                 pos_l[4] = self.left.degree_to_ticks(8, foot_deg_l)
 
-                # Send commands to both legs
-                success_r = self.right.send_command(pos_r)
-                success_l = self.left.send_command(pos_l)
-
-                if not (success_r and success_l):
+                # Send commands to both legs (cung luc, xem send_both)
+                if not self.send_both(pos_r, pos_l):
                     print("Failed to send command to one or both legs")
                     return False
 
@@ -244,47 +262,69 @@ class SingleLegController:
                 },
             }
 
+        # Chieu quay tung khop: +1 = tick tang khi goc tang.
+        # CA HAI CHAN deu +1 vi 2 ben KHONG lap doi xung guong.
+        # Kiem chung: cho 2 chan cung mot bo goc (lenh "initial") thi robot bi van,
+        # mot chan co ra truoc mot chan co ra sau -> goc duong = cung mot chieu vat ly.
+        # Truoc day chan LEFT bi dao dau (-1) nen lech pha 180 do bi trieu tieu:
+        # am nhan am = duong, hai hong chay song song thay vi nguoc nhau.
+        # Neu do lai thay RIENG mot khop bi nguoc, chi doi rieng khop do thanh -1.
+        self.joint_dir = {5: 1, 7: 1, 8: 1}
+
         print(f"{self.side} leg controller initialized on {server_ip}:{server_port}")
 
-    def degree_to_ticks(self, servo_id: int, degrees_relative: float) -> int:
-        """Convert degrees to ticks"""
+    def limits_deg(self, servo_id: int) -> tuple:
+        """Gioi han goc (min_deg, max_deg) suy ra tu min_ticks / max_ticks"""
         config = self.servo_config[servo_id]
         home_ticks = config["home_ticks"]
         min_ticks = config["min_ticks"]
         max_ticks = config["max_ticks"]
 
-        if self.side == "RIGHT":
-            # RIGHT leg: normal
-            min_deg = (min_ticks - home_ticks) / 4096.0 * 360.0
-            max_deg = (max_ticks - home_ticks) / 4096.0 * 360.0
-            degrees_relative = max(min_deg, min(max_deg, degrees_relative))
-            ticks = home_ticks + (degrees_relative / 360.0) * 4096.0
-        else:
-            # LEFT leg: inverted (ticks decrease = angle increases)
-            ticks_range_forward = home_ticks - min_ticks
-            ticks_range_backward = max_ticks - home_ticks
+        d = self.joint_dir[servo_id]
+        a = (min_ticks - home_ticks) / 4096.0 * 360.0 * d
+        b = (max_ticks - home_ticks) / 4096.0 * 360.0 * d
 
-            if degrees_relative >= 0:
-                max_angle_forward = (ticks_range_forward / 4096.0) * 360.0
-                clipped_deg = min(degrees_relative, max_angle_forward)
-                ticks = home_ticks - (clipped_deg / 360.0) * 4096.0
-            else:
-                max_angle_backward = (ticks_range_backward / 4096.0) * 360.0
-                clipped_deg = max(degrees_relative, -max_angle_backward)
-                ticks = home_ticks - (clipped_deg / 360.0) * 4096.0
+        return min(a, b), max(a, b)
 
-        ticks = max(min_ticks, min(max_ticks, int(ticks)))
-        return ticks
+    def print_limits(self):
+        """In gioi han goc cua tung khop"""
+        print(f"\n{self.side} Leg Limits (relative to home = 0°):")
+        for servo_id in (5, 7, 8):
+            config = self.servo_config[servo_id]
+            min_deg, max_deg = self.limits_deg(servo_id)
+            print(
+                f"  {config['name']:8} {min_deg:8.2f}° .. {max_deg:8.2f}°   "
+                f"(ticks {config['min_ticks']:4d} .. {config['max_ticks']:4d})"
+            )
+
+    def degree_to_ticks(self, servo_id: int, degrees_relative: float) -> int:
+        """Convert degrees to ticks (clamp theo gioi han phan cung)"""
+        config = self.servo_config[servo_id]
+        home_ticks = config["home_ticks"]
+        min_ticks = config["min_ticks"]
+        max_ticks = config["max_ticks"]
+
+        min_deg, max_deg = self.limits_deg(servo_id)
+        clipped_deg = max(min_deg, min(max_deg, degrees_relative))
+
+        if abs(clipped_deg - degrees_relative) > 0.01:
+            print(
+                f"  CLIP {self.side} {config['name']}: "
+                f"muon {degrees_relative:7.2f}° -> chi duoc {clipped_deg:7.2f}°"
+            )
+
+        d = self.joint_dir[servo_id]
+        ticks = home_ticks + d * (clipped_deg / 360.0) * 4096.0
+
+        return max(min_ticks, min(max_ticks, int(round(ticks))))
 
     def ticks_to_degree(self, servo_id: int, ticks: int) -> float:
         """Convert ticks to degrees"""
         config = self.servo_config[servo_id]
         home_ticks = config["home_ticks"]
 
-        if self.side == "RIGHT":
-            degrees_relative = (ticks - home_ticks) / 4096.0 * 360.0
-        else:
-            degrees_relative = (home_ticks - ticks) / 4096.0 * 360.0
+        d = self.joint_dir[servo_id]
+        degrees_relative = d * (ticks - home_ticks) / 4096.0 * 360.0
 
         return round(degrees_relative, 2)
 
@@ -308,10 +348,18 @@ class SingleLegController:
                 status = "->" if degrees >= 0 else "<-"
                 print(f"  {status} {name:8} {degrees:7.2f}° ({ticks:4d} ticks)")
 
-    def send_command(self, positions: list) -> bool:
-        """Send command to leg"""
+    def send_only(self, positions: list) -> bool:
+        """Ban lenh di, KHONG doi tra loi. Dung khi muon 2 chan nhan lenh cung luc."""
         try:
             self.socket.send_json({"type": "move", "positions": positions})
+            return True
+        except Exception as e:
+            print(f"{self.side}: Send error {e}")
+            return False
+
+    def recv_ack(self) -> bool:
+        """Thu ve tra loi cua mot lenh da ban bang send_only()"""
+        try:
             response = self.socket.recv_json()
             return response.get("status") == "success"
         except zmq.error.Again:
@@ -320,6 +368,10 @@ class SingleLegController:
         except Exception as e:
             print(f"{self.side}: Error {e}")
             return False
+
+    def send_command(self, positions: list) -> bool:
+        """Send command to leg (ban roi doi tra loi ngay)"""
+        return self.send_only(positions) and self.recv_ack()
 
     def get_feedback(self, timeout: float = 5.0) -> list:
         """Get position feedback"""
@@ -368,9 +420,16 @@ class SingleLegController:
         """Move to initial pose"""
         print(f"\n{self.side} leg -> INITIAL POSE")
 
-        initial_hip_deg = 15
-        initial_knee_deg = -30
-        initial_foot_deg = 15
+        # Tam dao dong, chon trong vung chung cua CA HAI chan (sau khi bo dao chieu):
+        #   hip  [ -4.75, +27.42]  (bi chan boi LEFT hip min -4.75)
+        #   knee [-96.59, +97.38]
+        #   foot [-53.61, +38.85]  (bi chan boi LEFT foot max +38.85)
+        # Cua so hip lech han ve phia duong nen tam phai dat o +11, khong phai 0.
+        # foot PHAI = -(hip + knee) de khop voi cong thuc trong swing gait,
+        # neu khong ban chan se giat manh o buoc dau tien.
+        initial_hip_deg = 11
+        initial_knee_deg = -15
+        initial_foot_deg = -(initial_hip_deg + initial_knee_deg)
 
         initial_pos = self.home_pos.copy()
         initial_pos[1] = self.degree_to_ticks(5, initial_hip_deg)
@@ -431,6 +490,7 @@ def main():
     print("  home               -> Return both legs to home")
     print("  initial            -> Move both legs to initial pose")
     print("  read               -> Read current position of both legs")
+    print("  limits             -> Print hardware angle limits of both legs")
     print("  exit               -> Quit")
     print("=" * 70)
 
@@ -445,6 +505,10 @@ def main():
 
             elif user_input == "read":
                 dual.read_positions_both()
+
+            elif user_input == "limits":
+                dual.right.print_limits()
+                dual.left.print_limits()
 
             elif user_input == "home":
                 dual.go_home_both()
