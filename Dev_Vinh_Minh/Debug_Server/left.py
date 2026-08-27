@@ -115,6 +115,7 @@ class MCUServerLeft:
         # State data (6 servos)
         self.state_data = {
             "imu": [0.0, 0.0, 0.0, 0.0],
+            "imu_t_sample": 0.0,  # ✅ THÊM: thời điểm lấy mẫu IMU (đóng dấu tại nguồn)
             "distance": [0, 0, 0, 0],
             "servo_pos": [0] * 6,
             "servo_speed": [0] * 6,
@@ -245,7 +246,6 @@ class MCUServerLeft:
                     if pos is not None and pos > 0:
                         with self.read_lock:
                             self.state_data["servo_pos"][idx] = int(pos)
-                        logger.debug(f"✓ {motor_name}: pos={int(pos)}")
                     else:
                         with self.read_lock:
                             old_value = self.state_data["servo_pos"][idx]
@@ -269,6 +269,7 @@ class MCUServerLeft:
 
             if IMU.dataReady():
                 IMU.getAgmt()
+                t_sample = time.time()  # ✅ THÊM: đóng dấu ngay sát lúc lấy mẫu vật lý
 
                 # Read raw data
                 ax_raw = IMU.axRaw
@@ -319,6 +320,9 @@ class MCUServerLeft:
                 # ✅ Store quaternion in state_data
                 with self.imu_lock:
                     self.state_data["imu"] = list(q_new)  # [w, x, y, z]
+                    self.state_data["imu_t_sample"] = (
+                        t_sample  # ✅ THÊM: lưu dấu thời gian
+                    )
 
                 # logger.debug(
                 #     f"IMU: ax={ax:+.4f}, ay={ay:+.4f}, az={az:+.4f} | "
@@ -443,11 +447,13 @@ class MCUServerLeft:
                 # ✅ THÊM: Trả về gyro data
                 with self.imu_lock:
                     imu_quat = self.state_data["imu"].copy()
+                    imu_t = self.state_data.get("imu_t_sample", 0.0)  # ✅ THÊM
 
                 return {
                     "status": "success",
                     "quat": imu_quat,
                     "gyro": [filtered_gx, filtered_gy, filtered_gz],  # ✅ THÊM
+                    "t_sample": imu_t,  # ✅ THÊM: gửi dấu thời gian về laptop
                     "servo_pos": self.state_data["servo_pos"],
                     "servo_speed": self.state_data["servo_speed"],
                     "servo_load": self.state_data["servo_load"],

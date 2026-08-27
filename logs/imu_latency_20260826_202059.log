@@ -1,0 +1,55 @@
+ Log (text):  /home/lenovo-loq/Desktop/Transform_bipedal_vinhust/logs/imu_latency_20260826_202059.log
+ Log (jsonl): /home/lenovo-loq/Desktop/Transform_bipedal_vinhust/logs/imu_latency_20260826_202059.jsonl
+✓ LEFT IMU controller connected to mobile2.local:5556
+✓ RIGHT IMU controller connected to mobile1.local:5555
+
+==============================================================================
+ĐO ĐỘ TRỄ IMU  |  count=1000  hz=50.0
+  RTT: đo được ngay (không cần chrony).
+  age/skew: chỉ hiện khi Pi đã đóng dấu t_sample + chrony đã đồng bộ.
+==============================================================================
+
+⏳ Warm-up server 3s...
+  [  50/1000] RTT_L=3.3 RTT_R=4.6 ms | skew=+12.9 age_L=13.1 ms
+  [ 100/1000] RTT_L=3.3 RTT_R=2.3 ms | skew=-6.2 age_L=23.4 ms
+  [ 150/1000] RTT_L=1.9 RTT_R=1.7 ms | skew=-12.1 age_L=16.0 ms
+  [ 200/1000] RTT_L=2.0 RTT_R=1.6 ms | skew=+9.3 age_L=8.0 ms
+  [ 250/1000] RTT_L=2.1 RTT_R=2.0 ms | skew=+11.6 age_L=10.0 ms
+  [ 300/1000] RTT_L=2.7 RTT_R=1.8 ms | skew=-8.1 age_L=22.2 ms
+  [ 350/1000] RTT_L=2.2 RTT_R=1.9 ms | skew=-7.4 age_L=13.6 ms
+  [ 400/1000] RTT_L=3.3 RTT_R=1.7 ms | skew=+14.9 age_L=8.9 ms
+  [ 450/1000] RTT_L=3.1 RTT_R=1.9 ms | skew=+16.6 age_L=9.7 ms
+  [ 500/1000] RTT_L=1.8 RTT_R=1.8 ms | skew=-9.9 age_L=25.8 ms
+  [ 550/1000] RTT_L=1.8 RTT_R=3.1 ms | skew=-8.8 age_L=18.4 ms
+  [ 600/1000] RTT_L=1.7 RTT_R=2.8 ms | skew=-4.6 age_L=15.1 ms
+  [ 650/1000] RTT_L=1.9 RTT_R=1.5 ms | skew=-4.1 age_L=28.7 ms
+  [ 700/1000] RTT_L=1.8 RTT_R=6.6 ms | skew=-2.9 age_L=28.1 ms
+  [ 750/1000] RTT_L=1.9 RTT_R=1.9 ms | skew=-0.4 age_L=12.8 ms
+  [ 800/1000] RTT_L=7.7 RTT_R=6.4 ms | skew=-1.7 age_L=16.9 ms
+  [ 850/1000] RTT_L=1.9 RTT_R=1.8 ms | skew=-1.5 age_L=21.5 ms
+  [ 900/1000] RTT_L=1.9 RTT_R=1.7 ms | skew=-3.3 age_L=14.4 ms
+  [ 950/1000] RTT_L=3.4 RTT_R=4.1 ms | skew=-4.5 age_L=24.9 ms
+  [1000/1000] RTT_L=1.9 RTT_R=1.5 ms | skew=-5.4 age_L=14.5 ms
+
+==============================================================================
+KẾT QUẢ  (fail=0, t_sample thiếu=0)
+==============================================================================
+
+[1] RTT khứ hồi (không cần chrony):
+  RTT LEFT              : mean=   2.72 | median=   2.02 | p95=   5.40 | max=  39.06 | jitter=  2.82 ms
+  RTT RIGHT             : mean=   2.31 | median=   1.81 | p95=   4.89 | max=  31.59 | jitter=  1.82 ms
+  => một chiều ~ RTT/2: LEFT≈1.4ms  RIGHT≈1.2ms
+
+[2] AGE - tuổi mẫu (cần chrony đồng bộ):
+  age LEFT              : mean=  18.19 | median=  18.10 | p95=  29.09 | max=  49.34 | jitter=  7.25 ms
+  age RIGHT             : mean=  15.62 | median=  15.85 | p95=  26.03 | max=  36.47 | jitter=  7.01 ms
+
+[3] SKEW - lệch 2 IMU |t_L - t_R| (cần chrony đồng bộ):
+  skew (signed)         : mean=  -2.57 | median=  -4.27 | p95=  15.67 | max=  20.74 | jitter=  9.15 ms
+  skew (abs)            : mean=   7.90 | median=   7.86 | p95=  16.31 | max=  33.14 | jitter=  5.28 ms
+
+Đọc số:
+  - |skew| ~ offset chrony (vài ms) => 2 IMU coi như đồng pha, TỐT.
+  - |skew| lớn & ỔN ĐỊNH  => lệch hệ thống, bù được bằng nội suy.
+  - |skew| lớn & GIẬT LOẠN => bằng chứng nên chuyển sang MCU.
+  - jitter (RTT & skew) QUAN TRỌNG hơn giá trị trung bình.

@@ -122,6 +122,7 @@ class MCUServer:
         # ✅ SỬA: State data CHỈ 6 servos (motor 4-9)
         self.state_data = {
             "imu": [0.0, 0.0, 0.0, 0.0],  # Quaternion [w, x, y, z]
+            "imu_t_sample": 0.0,  # ✅ THÊM: thời điểm lấy mẫu IMU (đóng dấu tại nguồn)
             "distance": [0, 0, 0, 0],  # Distance sensors
             "servo_pos": [0] * 6,  # 6 leg servos
             "servo_speed": [0] * 6,
@@ -276,6 +277,7 @@ class MCUServer:
             if IMU.dataReady():
                 # logger.debug("🟢 IMU.dataReady() = True")
                 IMU.getAgmt()
+                t_sample = time.time()  # ✅ THÊM: đóng dấu ngay sát lúc lấy mẫu vật lý
 
                 # Read raw data
                 ax_raw = IMU.axRaw
@@ -326,6 +328,7 @@ class MCUServer:
                 # ✅ Store quaternion in state_data
                 with self.imu_lock:
                     self.state_data["imu"] = list(q_new)  # [w, x, y, z]
+                    self.state_data["imu_t_sample"] = t_sample  # ✅ THÊM: lưu dấu thời gian
 
                 # logger.debug(
                 #     f"IMU: ax={ax:+.4f}, ay={ay:+.4f}, az={az:+.4f} | "
@@ -478,11 +481,13 @@ class MCUServer:
                 # ✅ THÊM: Trả về gyro data
                 with self.imu_lock:
                     imu_quat = self.state_data["imu"].copy()
+                    imu_t = self.state_data.get("imu_t_sample", 0.0)  # ✅ THÊM
 
                 return {
                     "status": "success",
                     "quat": imu_quat,
                     "gyro": [filtered_gx, filtered_gy, filtered_gz],  # ✅ THÊM
+                    "t_sample": imu_t,  # ✅ THÊM: gửi dấu thời gian về laptop
                     "servo_pos": self.state_data["servo_pos"],
                     "servo_speed": self.state_data["servo_speed"],
                     "servo_load": self.state_data["servo_load"],

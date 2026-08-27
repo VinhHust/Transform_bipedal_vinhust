@@ -30,7 +30,7 @@ IMU.begin()
 total_measurements = len(ORIENTATIONS) * SAMPLES_PER_FACE
 M = np.zeros((3 * total_measurements, 12))
 R = np.zeros((3 * total_measurements, 1))
-
+measurement_idx = 0
 print("\n=== CHƯƠNG TRÌNH HIỆU CHUẨN GIA TỐC KẾ (ACCELEROMETER) ===")
 
 for face in ORIENTATIONS:
@@ -101,9 +101,25 @@ print("Bias =", np.round(Bias, 4).tolist())
 # --- BƯỚC 5: LƯU RA JSON ---
 OUTPUT_FILE = "vinh_accel_calib.json"
 
-calibration_data = {
-    "accel": {
-        "SM": float_list_to_standard(SM),  # Convert qua kiểu list thuần túy
-        "bias": float_list_to_standard(Bias),
-    }
-}
+
+def convert_to_float(obj):
+    if isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif hasattr(obj, "item"):  # Xử lý các loại số của numpynhư np.float64, np.float32
+        return obj.item()
+    elif isinstance(obj, list):
+        return [convert_to_float(item) for item in obj]
+    elif isinstance(obj, dict):
+        return {k: convert_to_float(v) for k, v in obj.items()}
+    return obj
+
+
+calibration_data = {"accel": {"SM": SM, "bias": Bias}}
+
+calibration_data = convert_to_float(calibration_data)
+
+# 3. Ghi ra file JSON
+with open(OUTPUT_FILE, "w") as f:
+    json.dump(calibration_data, f, indent=4)
+
+    print(f"\n✅ Đã lưu toàn bộ thông số Accel vào file {OUTPUT_FILE}")

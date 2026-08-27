@@ -3,6 +3,152 @@
 Tài liệu này dành cho **Minh (Cat2I)** và **Vinh (VinhHust)** khi cùng dev trên fork của Vinh,
 rồi gộp thành quả vào repo chính của **Nam (khacnambn)**.
 
+> **Đọc gì:** Phần B ngay bên dưới là thứ dùng hằng ngày — mở file là thấy luôn.
+> Các phần còn lại chỉ đọc khi cần: **C** lúc sắp làm gì nguy hiểm, **0** lúc quên
+> repo/remote nào là cái nào, **A** chỉ làm một lần lúc cài máy (đã xong).
+>
+> Thứ tự chữ cái A/B/C giữ nguyên như cũ để các tham chiếu trong bài (mục B4, mục C0…)
+> không bị lệch — nên trên file, B nằm trước A. Không phải lỗi.
+
+---
+
+## PHẦN B — Daily workflow
+
+### B1. Vòng lặp hằng ngày (làm mỗi ngày, cả hai người)
+
+```bash
+# ===== ĐẦU BUỔI — luôn luôn, không ngoại lệ =====
+git switch dev_team
+git pull --rebase
+
+# ===== ... code ... =====
+
+# ===== SAU MỖI VIỆC NHỎ ĐÃ XONG =====
+git add -A
+git commit -m "feat(imu): mô tả ngắn việc vừa làm"
+git push
+```
+
+**`--rebase` nghĩa là gì?** Nó lấy commit mới của người kia về, rồi *đặt commit của bạn lên trên cùng*,
+thay vì tạo một commit merge rác. Kết quả: lịch sử là một đường thẳng, dễ đọc, dễ tìm lỗi.
+
+**Tần suất:** commit nhỏ, push thường xuyên. Ôm code 3 ngày rồi push một cục 40 file
+là công thức chuẩn để tạo conflict địa ngục.
+
+---
+
+### B2. Khi `git push` bị từ chối
+
+Thông báo trông như thế này:
+
+```
+! [rejected]  dev_team -> dev_team (fetch first)
+error: failed to push some refs ... behind its remote counterpart
+```
+
+Nghĩa là: người kia vừa push trước bạn. Hoàn toàn bình thường. **Đừng dùng `--force`.** Chỉ cần:
+
+```bash
+git pull --rebase
+git push
+```
+
+---
+
+### B3. Khi gặp conflict lúc `git pull --rebase`
+
+Git sẽ dừng lại và báo file nào bị đụng. Trong file đó sẽ có các dấu:
+
+```
+<<<<<<< HEAD
+   code của người kia (đã có trên server)
+=======
+   code của bạn
+>>>>>>> abc1234 (commit message của bạn)
+```
+
+Cách xử lý:
+
+```bash
+# 1. Mở từng file bị báo conflict, sửa tay:
+#    xoá 3 dòng dấu <<<<<<< ======= >>>>>>>
+#    giữ lại đoạn code ĐÚNG (có thể là của bạn, của người kia, hoặc trộn cả hai)
+
+# 2. Đánh dấu đã xử lý xong
+git add <file-vừa-sửa>
+
+# 3. Tiếp tục rebase
+git rebase --continue
+
+# 4. Push
+git push
+```
+
+**Nếu rối quá, muốn quay về lúc chưa pull:**
+
+```bash
+git rebase --abort
+```
+
+Lệnh này an toàn tuyệt đối, đưa mọi thứ về nguyên trạng. Rồi hỏi người kia xem đoạn đó nên giữ cái gì.
+
+---
+
+### B4. Định kỳ kéo `main` của Nam về (2–3 ngày/lần, hoặc khi Nam vừa merge gì đó)
+
+Để tránh nhánh `dev_team` trôi quá xa khỏi repo chính — càng trôi xa, lúc gộp cuối càng đau.
+
+Hai người gõ hai lệnh khác nhau vì **tên remote trên hai máy đặt khác nhau** — máy Minh gọi repo
+Nam là `origin`, máy Vinh gọi là `upstream`. Quên cái nào là cái nào thì xem mục 0.
+
+**Minh:**
+```bash
+git switch dev_team
+git fetch origin
+git merge origin/main
+git push
+```
+
+**Vinh:**
+```bash
+git switch dev_team
+git fetch upstream
+git merge upstream/main
+git push
+```
+
+> Ở bước này dùng **`merge`**, KHÔNG dùng `rebase`.
+> Lý do: `dev_team` là nhánh chung, người kia cũng đang dùng.
+> `rebase` viết lại lịch sử commit **đã push**, làm hỏng repo của người kia.
+> `merge` chỉ *thêm* commit mới → an toàn tuyệt đối. Xem thêm mục C1.
+
+Chỉ **một người** làm bước này rồi báo người kia `git pull --rebase` là đủ — không cần cả hai cùng làm.
+
+---
+
+### B5. Khi cả hai thống nhất là xong → gộp lên repo Nam
+
+Chạy B4 một lần cuối trước đã, để PR không bị báo conflict.
+
+**Tầng 1 — fork → nhánh tích hợp trên repo Nam:**
+
+```bash
+gh pr create --repo khacnambn/TransformBipedal_Firmware \
+  --base dev_team --head VinhHust:dev_team \
+  --title "Dev: <tóm tắt thành quả>" \
+  --body "Tổng hợp công việc của Minh và Vinh: ..."
+```
+
+**Tầng 2 — nhánh tích hợp → `main`, Nam review.** Ở tầng này **tách làm hai PR**:
+
+| PR | Nội dung | Nam review |
+|---|---|---|
+| A | `Dev_Vinh_Minh/`, `docs/`, file test riêng | Duyệt nhanh, gần như không rủi ro |
+| B | `bipedal_nam/**`, `examples_client/**` | Đọc kỹ — đây là code của Nam |
+
+PR #2 hỏng chính vì gộp cả hai làm một cục. Tách ra thì Nam duyệt A trong 2 phút,
+còn B thì soi kỹ. Đừng bao giờ để một PR vừa thêm code mới vừa sửa code người khác.
+
 ---
 
 ## 0. Bối cảnh — ai là ai, repo nào là repo nào
@@ -177,142 +323,6 @@ Chung (phải báo nhau trước khi sửa):  ...
 ```
 
 5 phút này tiết kiệm được vài giờ gỡ conflict.
-
----
-
-## PHẦN B — Daily workflow
-
-### B1. Vòng lặp hằng ngày (làm mỗi ngày, cả hai người)
-
-```bash
-# ===== ĐẦU BUỔI — luôn luôn, không ngoại lệ =====
-git switch dev_team
-git pull --rebase
-
-# ===== ... code ... =====
-
-# ===== SAU MỖI VIỆC NHỎ ĐÃ XONG =====
-git add -A
-git commit -m "feat(imu): mô tả ngắn việc vừa làm"
-git push
-```
-
-**`--rebase` nghĩa là gì?** Nó lấy commit mới của người kia về, rồi *đặt commit của bạn lên trên cùng*,
-thay vì tạo một commit merge rác. Kết quả: lịch sử là một đường thẳng, dễ đọc, dễ tìm lỗi.
-
-**Tần suất:** commit nhỏ, push thường xuyên. Ôm code 3 ngày rồi push một cục 40 file
-là công thức chuẩn để tạo conflict địa ngục.
-
----
-
-### B2. Khi `git push` bị từ chối
-
-Thông báo trông như thế này:
-
-```
-! [rejected]  dev_team -> dev_team (fetch first)
-error: failed to push some refs ... behind its remote counterpart
-```
-
-Nghĩa là: người kia vừa push trước bạn. Hoàn toàn bình thường. **Đừng dùng `--force`.** Chỉ cần:
-
-```bash
-git pull --rebase
-git push
-```
-
----
-
-### B3. Khi gặp conflict lúc `git pull --rebase`
-
-Git sẽ dừng lại và báo file nào bị đụng. Trong file đó sẽ có các dấu:
-
-```
-<<<<<<< HEAD
-   code của người kia (đã có trên server)
-=======
-   code của bạn
->>>>>>> abc1234 (commit message của bạn)
-```
-
-Cách xử lý:
-
-```bash
-# 1. Mở từng file bị báo conflict, sửa tay:
-#    xoá 3 dòng dấu <<<<<<< ======= >>>>>>>
-#    giữ lại đoạn code ĐÚNG (có thể là của bạn, của người kia, hoặc trộn cả hai)
-
-# 2. Đánh dấu đã xử lý xong
-git add <file-vừa-sửa>
-
-# 3. Tiếp tục rebase
-git rebase --continue
-
-# 4. Push
-git push
-```
-
-**Nếu rối quá, muốn quay về lúc chưa pull:**
-
-```bash
-git rebase --abort
-```
-
-Lệnh này an toàn tuyệt đối, đưa mọi thứ về nguyên trạng. Rồi hỏi người kia xem đoạn đó nên giữ cái gì.
-
----
-
-### B4. Định kỳ kéo `main` của Nam về (2–3 ngày/lần, hoặc khi Nam vừa merge gì đó)
-
-Để tránh nhánh `dev_team` trôi quá xa khỏi repo chính — càng trôi xa, lúc gộp cuối càng đau.
-
-**Minh:**
-```bash
-git switch dev_team
-git fetch origin
-git merge origin/main
-git push
-```
-
-**Vinh:**
-```bash
-git switch dev_team
-git fetch upstream
-git merge upstream/main
-git push
-```
-
-> Ở bước này dùng **`merge`**, KHÔNG dùng `rebase`.
-> Lý do: `dev_team` là nhánh chung, người kia cũng đang dùng.
-> `rebase` viết lại lịch sử commit **đã push**, làm hỏng repo của người kia.
-> `merge` chỉ *thêm* commit mới → an toàn tuyệt đối. Xem thêm mục C1.
-
-Chỉ **một người** làm bước này rồi báo người kia `git pull --rebase` là đủ — không cần cả hai cùng làm.
-
----
-
-### B5. Khi cả hai thống nhất là xong → gộp lên repo Nam
-
-Chạy B4 một lần cuối trước đã, để PR không bị báo conflict.
-
-**Tầng 1 — fork → nhánh tích hợp trên repo Nam:**
-
-```bash
-gh pr create --repo khacnambn/TransformBipedal_Firmware \
-  --base dev_team --head VinhHust:dev_team \
-  --title "Dev: <tóm tắt thành quả>" \
-  --body "Tổng hợp công việc của Minh và Vinh: ..."
-```
-
-**Tầng 2 — nhánh tích hợp → `main`, Nam review.** Ở tầng này **tách làm hai PR**:
-
-| PR | Nội dung | Nam review |
-|---|---|---|
-| A | `Dev_Vinh_Minh/`, `docs/`, file test riêng | Duyệt nhanh, gần như không rủi ro |
-| B | `bipedal_nam/**`, `examples_client/**` | Đọc kỹ — đây là code của Nam |
-
-PR #2 hỏng chính vì gộp cả hai làm một cục. Tách ra thì Nam duyệt A trong 2 phút,
-còn B thì soi kỹ. Đừng bao giờ để một PR vừa thêm code mới vừa sửa code người khác.
 
 ---
 
