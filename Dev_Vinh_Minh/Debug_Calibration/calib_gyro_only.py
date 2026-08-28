@@ -15,6 +15,10 @@ if not IMU.connected:
 
 IMU.begin()
 
+# cố định FSR Gyro về dps 500 để khớp với gyroacce.ơy
+IMU.setFullScaleRangeGyro(qwiic_icm20948.dps500)  # hằng số ở cấp module, KHÔNG phải IMU.dps500
+GYRO_SENSITIVITY = 65.5  # LSB/(°/s) — cố định theo bảng datasheet cho ±500 dps
+
 # Đợi 5 giây để IMU ổn định
 for i in range(5, 0, -1):
     print(f"Starting calibration in {i} seconds...")
@@ -89,19 +93,6 @@ print(f"\n✅ Gyroscope Bias calculated:")
 print(f"  gx_bias = {gx_bias:+.2f}")
 print(f"  gy_bias = {gy_bias:+.2f}")
 print(f"  gz_bias = {gz_bias:+.2f}")
-
-
-# Xác định dải đo độ nhạy
-max_val = max(
-    abs(gx_min), abs(gx_max), abs(gy_min), abs(gy_max), abs(gz_min), abs(gz_max)
-)
-
-if max_val > 16384:
-    GYRO_SENSITIVITY = 16.384
-elif max_val > 8192:
-    GYRO_SENSITIVITY = 32.768
-else:
-    GYRO_SENSITIVITY = 65.536
 
 # TẠO MỚI DỮ LIỆU CALIB TỪ ĐẦU (Không đọc file cũ)
 calib = {
