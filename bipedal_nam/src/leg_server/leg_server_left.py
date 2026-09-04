@@ -13,6 +13,7 @@ import math
 from ahrs.filters import Madgwick
 import numpy as np
 
+# CHÂN TRÁI LÀ LEG SERVER 2
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -21,31 +22,27 @@ from bipedal_robot.bipedal_left import BipedalRobot, BipedalConfig
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - [MCU_SERVER_LEFT] - %(message)s'
+    format="%(asctime)s - %(levelname)s - [MCU_SERVER_LEFT] - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 # ==============================
 # Load calibration
 # ==============================
-with open("/home/mobile2/leg2_bipedal/imu/imu_calib.json", "r") as f:
+with open(
+    "/home/mobile2/Transform_bipedal/bipedal_nam/src/leg_server/calibfull.json", "r"
+) as f:
     calib = json.load(f)
 
-ax_bias = calib["ax_bias"]
-ay_bias = calib["ay_bias"]
-az_bias = calib["az_bias"]
+# calib từ accel
+accel_SM = np.array(calib["accel"]["SM"])
+accel_bias = np.array(calib["accel"]["bias"])
 
-ax_scale = calib["ax_scale"]
-ay_scale = calib["ay_scale"]
-az_scale = calib["az_scale"]
-
-gx_bias = calib.get("gx_bias", 0)
-gy_bias = calib.get("gy_bias", 0)
-gz_bias = calib.get("gz_bias", 0)
-GYRO_SENSITIVITY = calib.get("gyro_sensitivity", 65.536)
-
-SENSITIVITY = 16384.0
-G = 9.81
+# calib từ gyro
+gx_bias = calib["gyro"]["gx_bias"]
+gy_bias = calib["gyro"]["gy_bias"]
+gz_bias = calib["gyro"]["gz_bias"]
+GYRO_SENSITIVITY = calib["gyro"]["gyro_sensitivity"]
 
 ACCEL_ALPHA = 0.15
 GYRO_ALPHA = 0.15
@@ -60,7 +57,15 @@ if not IMU.connected:
     exit()
 
 IMU.begin()
-logger.info("ICM-20948 IMU initialized (calibrated, output in m/s²)")
+IMU.setFullScaleRangeGyro(qwiic_icm20948.dps500)  # Khớp FSR ±500 dps lúc calib
+IMU.setFullScaleRangeAccel(qwiic_icm20948.gpm4)   # Khớp FSR ±4g lúc calib
+# DLPF phần cứng — phải trùng với lúc calib, nếu không mức nhiễu khác đi và
+# beta của Madgwick không còn hợp. 'low' cũng khử torn read (docs/analysis.md).
+IMU.setDLPFcfgAccel(qwiic_icm20948.acc_d23bw9_n34bw4)
+IMU.setDLPFcfgGyro(qwiic_icm20948.gyr_d23bw9_n35bw9)
+IMU.enableDlpfAccel(True)
+IMU.enableDlpfGyro(True)
+logger.info("ICM-20948 IMU initialized (FSR: ±500dps, ±4g, output in m/s²)")
 madgwick = Madgwick(frequency=50, beta=0.1)
 madgwick.q0 = np.array([1.0, 0.0, 0.0, 0.0])  # Initialize with identity quaternion
 
@@ -86,26 +91,26 @@ class MCUServerLeft:
 
         # ✅ Motor mapping - LEFT leg (motor 4-9)
         self.servo_map = {
-            4: "bubleft_joint",               # LEFT leg_bub (sts3095)
-            5: "hipleft_joint",               # LEFT leg_hip (sts3095)
-            6: "twistleft_joint",             # LEFT leg_twist (sts3215)
-            7: "kneeleft_joint",              # LEFT leg_knee (sts3095)
-            8: "footleft_joint",              # LEFT leg_foot (sts3215)
-            9: "gripperleft_joint",           # LEFT leg_gripper (sts3215)
+            4: "bubleft_joint",  # LEFT leg_bub (sts3095)
+            5: "hipleft_joint",  # LEFT leg_hip (sts3095)
+            6: "twistleft_joint",  # LEFT leg_twist (sts3215)
+            7: "kneeleft_joint",  # LEFT leg_knee (sts3095)
+            8: "footleft_joint",  # LEFT leg_foot (sts3215)
+            9: "gripperleft_joint",  # LEFT leg_gripper (sts3215)
         }
 
         # Servo control parameters
-        self.servo_speed = 3400      # Goal velocity
-        self.servo_accel = 254       # Acceleration
+        self.servo_speed = 1000  # Goal velocity
+        self.servo_accel = 254  # Acceleration
 
         # ✅ Servo limits for LEFT leg
         self.servo_limits = {
-            4: {"min": 1311, "max": 3665},
-            5: {"min": 1545, "max": 2365},
-            6: {"min": 1040, "max": 1050},
-            7: {"min": 1313, "max": 3231},
-            8: {"min": 1111, "max": 2363},
-            9: {"min": 1380, "max": 1398},
+            4: {"min": 1782, "max": 4050},
+            5: {"min": 1994, "max": 2470},
+            6: {"min": 1062, "max": 3097},
+            7: {"min": 949, "max": 3156},
+            8: {"min": 1438, "max": 2490},
+            9: {"min": 1802, "max": 2646},
         }
 
         # Current positions (6 servos: motor 4-9)
@@ -118,6 +123,7 @@ class MCUServerLeft:
         # State data (6 servos)
         self.state_data = {
             "imu": [0.0, 0.0, 0.0, 0.0],
+            "imu_t_sample": 0.0,  # ✅ THÊM: thời điểm lấy mẫu IMU (đóng dấu tại nguồn)
             "distance": [0, 0, 0, 0],
             "servo_pos": [0] * 6,
             "servo_speed": [0] * 6,
@@ -135,15 +141,18 @@ class MCUServerLeft:
         self.control_rate = 50  # Hz
         self.last_update_time = time.time()
         self.update_thread = None
-        self.imu_thread = None      # ✅ THÊM
-        self.servo_thread = None    # ✅ THÊM
+        self.imu_thread = None  # ✅ THÊM
+        self.servo_thread = None  # ✅ THÊM
 
         # Thread locks
         self.read_lock = threading.Lock()
         self.write_lock = threading.Lock()
         self.imu_lock = threading.Lock()
+        self.serial_lock = threading.Lock()
 
-        logger.info(f"MCUServerLeft initialized (6 LEFT leg servos 4-9) on port {zmq_port}")
+        logger.info(
+            f"MCUServerLeft initialized (6 LEFT leg servos 4-9) on port {zmq_port}"
+        )
 
     def init_zmq(self) -> bool:
         """Initialize ZeroMQ sockets - BOTH REQ/REP and PUSH/PULL"""
@@ -152,16 +161,18 @@ class MCUServerLeft:
             self.socket_rep.setsockopt(zmq.RCVTIMEO, 100)
             self.socket_rep.bind(f"tcp://*:{self.zmq_port}")  # 5555
             logger.info(f"✓ REQ/REP socket bound to port {self.zmq_port} (feedback)")
-            
+
             self.socket_pull = self.context.socket(zmq.PULL)
             self.socket_pull.setsockopt(zmq.RCVTIMEO, 100)
             self.socket_pull.bind(f"tcp://*:{self.zmq_port + 100}")  # 5655
-            logger.info(f"✓ PUSH/PULL socket bound to port {self.zmq_port + 100} (async commands)")
-            
+            logger.info(
+                f"✓ PUSH/PULL socket bound to port {self.zmq_port + 100} (async commands)"
+            )
+
             self.poller = zmq.Poller()
             self.poller.register(self.socket_rep, zmq.POLLIN)
             self.poller.register(self.socket_pull, zmq.POLLIN)
-            
+
             return True
         except Exception as e:
             logger.error(f"✗ Failed to initialize ZeroMQ: {e}")
@@ -173,43 +184,44 @@ class MCUServerLeft:
             self.robot = BipedalRobot(self.config)
             self.robot.connect()
             self.robot.configure()
-            
+
             logger.info("✓ Robot (LEFT leg) connected and configured")
             logger.info(f"✓ Available motors: {list(self.robot.bus.motors.keys())}")
-            
+
             # Initialize feedback
             logger.info("Initializing servo feedback (reading actual positions)...")
             time.sleep(0.5)
             self.update_servo_feedback()
-            
+
             # Verify feedback
             with self.read_lock:
                 current_pos = self.state_data["servo_pos"].copy()
-            
+
             logger.info(f"Initial positions read: {current_pos}")
-            
+
             if all(p == 0 for p in current_pos):
                 logger.warning("⚠️  Initial feedback all zeros!")
                 logger.warning("   Retrying after 1 second...")
                 time.sleep(1)
                 self.update_servo_feedback()
-                
+
                 with self.read_lock:
                     current_pos = self.state_data["servo_pos"].copy()
-                
+
                 logger.info(f"After retry: {current_pos}")
-                
+
                 if all(p == 0 for p in current_pos):
                     logger.error("❌ Feedback still all zeros!")
                     return False
-            
+
             logger.info(f"✓ Initial positions: {current_pos}")
             logger.info("✅ Robot initialization complete")
             return True
-            
+
         except Exception as e:
             logger.error(f"✗ Failed to initialize robot: {e}")
             import traceback
+
             traceback.print_exc()
             return False
 
@@ -232,22 +244,26 @@ class MCUServerLeft:
 
                 try:
                     idx = servo_id - 4
-                    
+
                     # ⭐ CHỈ đọc position (1 read per motor ~20ms)
-                    pos = self.robot.bus.read("Present_Position", motor_name, normalize=False)
-                    
+                    with self.serial_lock:
+                        pos = self.robot.bus.read(
+                            "Present_Position", motor_name, normalize=False
+                        )
+
                     if pos is not None and pos > 0:
                         with self.read_lock:
                             self.state_data["servo_pos"][idx] = int(pos)
-                        logger.debug(f"✓ {motor_name}: pos={int(pos)}")
                     else:
                         with self.read_lock:
                             old_value = self.state_data["servo_pos"][idx]
-                        logger.warning(f"⚠️  {motor_name}: read failed, keeping {old_value}")
-                    
+                        logger.warning(
+                            f"⚠️  {motor_name}: read failed, keeping {old_value}"
+                        )
+
                     # ⭐ BỎ: speed, load, voltage, current, temp (không cần cho policy)
                     # (Chỉ enable khi debug hoặc monitor robot health)
-                    
+
                 except Exception as e:
                     logger.error(f"Exception reading {motor_name}: {e}")
 
@@ -258,64 +274,70 @@ class MCUServerLeft:
         """Update IMU data with calibration and store in state_data."""
         try:
             global filtered_ax, filtered_ay, filtered_az, filtered_gx, filtered_gy, filtered_gz
-            
+
             if IMU.dataReady():
                 IMU.getAgmt()
-                
+                t_sample = time.time()  # ✅ THÊM: đóng dấu ngay sát lúc lấy mẫu vật lý
+
                 # Read raw data
                 ax_raw = IMU.axRaw
                 ay_raw = IMU.ayRaw
                 az_raw = IMU.azRaw
-                
+
                 gx_raw = IMU.gxRaw
                 gy_raw = IMU.gyRaw
                 gz_raw = IMU.gzRaw
-                
-                # ✅ Calibrate and convert accelerometer (LSB → m/s²)
-                ax_lsb = (ax_raw - ax_bias) / ax_scale
-                ay_lsb = (ay_raw - ay_bias) / ay_scale
-                az_lsb = (az_raw - az_bias) / az_scale
-                
-                ax = ax_lsb / SENSITIVITY * G
-                ay = ay_lsb / SENSITIVITY * G
-                az = az_lsb / SENSITIVITY * G
-                
+
+                #  Calibrate and convert accelerometer (LSB → m/s²)
+                # đưa giá trị raw vào mảng numpy
+                raw_accel = np.array([ax_raw, ay_raw, az_raw])
+                calib_accel = (
+                    accel_SM @ raw_accel - accel_bias
+                )  # giá trị calib = raw - offset
+
+                ax = calib_accel[0]
+                ay = calib_accel[1]
+                az = calib_accel[2]
+
                 # ✅ Calibrate and convert gyroscope (LSB → °/s → rad/s)
                 gx_deg = (gx_raw - gx_bias) / GYRO_SENSITIVITY
                 gy_deg = (gy_raw - gy_bias) / GYRO_SENSITIVITY
                 gz_deg = (gz_raw - gz_bias) / GYRO_SENSITIVITY
-                
+
                 gx = gx_deg * math.pi / 180
                 gy = gy_deg * math.pi / 180
                 gz = gz_deg * math.pi / 180
-                
+
                 # ✅ Apply low-pass filter for smooth data
                 filtered_ax = ACCEL_ALPHA * ax + (1 - ACCEL_ALPHA) * filtered_ax
                 filtered_ay = ACCEL_ALPHA * ay + (1 - ACCEL_ALPHA) * filtered_ay
                 filtered_az = ACCEL_ALPHA * az + (1 - ACCEL_ALPHA) * filtered_az
-                
+
                 filtered_gx = GYRO_ALPHA * gx + (1 - GYRO_ALPHA) * filtered_gx
                 filtered_gy = GYRO_ALPHA * gy + (1 - GYRO_ALPHA) * filtered_gy
                 filtered_gz = GYRO_ALPHA * gz + (1 - GYRO_ALPHA) * filtered_gz
-                
+
                 # ✅ Update Madgwick filter with filtered data
                 q_new = madgwick.updateIMU(
                     q=madgwick.q0,
                     gyr=np.array([filtered_gx, filtered_gy, filtered_gz]),
-                    acc=np.array([filtered_ax, filtered_ay, filtered_az])
+                    acc=np.array([filtered_ax, filtered_ay, filtered_az]),
                 )
                 madgwick.q0 = q_new
-                
+
                 # ✅ Store quaternion in state_data
                 with self.imu_lock:
                     self.state_data["imu"] = list(q_new)  # [w, x, y, z]
-                
+                    self.state_data["imu_t_sample"] = (
+                        t_sample  # ✅ THÊM: lưu dấu thời gian
+                    )
+
                 # logger.debug(
                 #     f"IMU: ax={ax:+.4f}, ay={ay:+.4f}, az={az:+.4f} | "
                 #     f"gx={gx_deg:+.2f}°/s, gy={gy_deg:+.2f}°/s, gz={gz_deg:+.2f}°/s | "
                 #     f"q=[{q_new[0]:+.4f}, {q_new[1]:+.4f}, {q_new[2]:+.4f}, {q_new[3]:+.4f}]"
                 # )
-                    
+
         except Exception as e:
             logger.error(f"Error updating IMU data: {e}")
 
@@ -336,8 +358,14 @@ class MCUServerLeft:
             temp_bytes = struct.pack("<6B", *self.state_data["servo_temp"])
 
             state_bytes = (
-                imu_bytes + dist_bytes + pos_bytes + speed_bytes +
-                load_bytes + voltage_bytes + current_bytes + temp_bytes
+                imu_bytes
+                + dist_bytes
+                + pos_bytes
+                + speed_bytes
+                + load_bytes
+                + voltage_bytes
+                + current_bytes
+                + temp_bytes
             )
 
             logger.debug(f"State data packed: {len(state_bytes)} bytes")
@@ -361,7 +389,9 @@ class MCUServerLeft:
             success_count = 0
             fail_count = 0
 
-            with self.write_lock:
+            # serial_lock (khong phai write_lock): giu cong serial suot ca 6 lenh ghi
+            # de luong doc feedback khong chen vao giua
+            with self.serial_lock:
                 for servo_id in range(4, 10):
                     motor_name = self.servo_map[servo_id]
                     pos_idx = servo_id - 4
@@ -381,12 +411,14 @@ class MCUServerLeft:
                             f"speed={self.servo_speed}, accel={self.servo_accel}"
                         )
 
+                        # KHONG khoa serial_lock o day: vong lap ngoai da giu roi,
+                        # threading.Lock khong reentrant -> khoa lai se treo
                         self.robot.write_pos_ex(
                             motor_name=motor_name,
                             position=clamped_pos,
                             speed=self.servo_speed,
                             acceleration=self.servo_accel,
-                            normalize=False
+                            normalize=False,
                         )
                         success_count += 1
 
@@ -395,9 +427,11 @@ class MCUServerLeft:
                         fail_count += 1
 
             self.target_positions = positions.copy()
-            
+
             result = success_count > 0 and fail_count == 0
-            logger.info(f"Applied positions (LEFT leg 4-9): {success_count} success, {fail_count} failed")
+            logger.info(
+                f"Applied positions (LEFT leg 4-9): {success_count} success, {fail_count} failed"
+            )
             return result
 
         except Exception as e:
@@ -421,11 +455,13 @@ class MCUServerLeft:
                 # ✅ THÊM: Trả về gyro data
                 with self.imu_lock:
                     imu_quat = self.state_data["imu"].copy()
-                
+                    imu_t = self.state_data.get("imu_t_sample", 0.0)  # ✅ THÊM
+
                 return {
                     "status": "success",
                     "quat": imu_quat,
                     "gyro": [filtered_gx, filtered_gy, filtered_gz],  # ✅ THÊM
+                    "t_sample": imu_t,  # ✅ THÊM: gửi dấu thời gian về laptop
                     "servo_pos": self.state_data["servo_pos"],
                     "servo_speed": self.state_data["servo_speed"],
                     "servo_load": self.state_data["servo_load"],
@@ -435,7 +471,7 @@ class MCUServerLeft:
                 }
 
             elif cmd_type == "home":
-                home_pos = [3366, 1958, 1042, 2317, 1584, 1390]
+                home_pos = [2048, 2048, 2048, 2048, 2048, 2048]
                 success = self.apply_new_positions(home_pos)
                 return {
                     "status": "success" if success else "error",
@@ -473,7 +509,7 @@ class MCUServerLeft:
     def imu_loop(self) -> None:
         """✅ IMU thread - 50Hz independent loop"""
         logger.info("IMU loop started (50Hz - independent)")
-        
+
         while self.running:
             try:
                 self.update_imu_data()
@@ -481,30 +517,24 @@ class MCUServerLeft:
             except Exception as e:
                 logger.error(f"Error in IMU loop: {e}")
                 time.sleep(0.01)
-        
+
         logger.info("IMU loop stopped")
 
     def servo_loop(self) -> None:
         """✅ Servo thread - 25Hz independent loop"""
         logger.info("Servo loop started (25Hz - independent)")
-        
+
         while self.running:
             try:
-                if self.read_lock.acquire(timeout=0.01):
-                    try:
-                        self.update_servo_feedback()
-                    finally:
-                        self.read_lock.release()
-                else:
-                    logger.debug("Read lock busy, skipping servo feedback")
-                
+                self.update_servo_feedback()
+
                 self.update_distance_sensors()
                 time.sleep(0.04)  # 25Hz = 40ms
-                
+
             except Exception as e:
                 logger.error(f"Error in Servo loop: {e}")
                 time.sleep(0.01)
-        
+
         logger.info("Servo loop stopped")
 
     def update_loop(self) -> None:
@@ -534,19 +564,19 @@ class MCUServerLeft:
         warmup_start = time.time()
         imu_samples = 0
         valid_count = 0
-        
+
         while time.time() - warmup_start < warmup_time:
             time.sleep(0.02)
             imu_samples += 1
-            
+
             with self.imu_lock:
                 imu_data = self.state_data["imu"].copy()
-            
+
             if imu_data != [0.0, 0.0, 0.0, 0.0]:
                 valid_count += 1
                 if valid_count % 50 == 0:
                     logger.info(f"  ✓ IMU valid: {valid_count} samples")
-        
+
         logger.info(f"✅ Warmup complete: {imu_samples} samples, {valid_count} valid")
         logger.info("MCU Server started with separate IMU/Servo loops...")
 
@@ -554,7 +584,7 @@ class MCUServerLeft:
             while self.running:
                 # ⭐ THÊM: Use poller để monitor cả 2 sockets
                 socks = dict(self.poller.poll(timeout=10))
-                
+
                 # ✅ Process REQ/REP (feedback queries)
                 if self.socket_rep in socks:
                     try:
@@ -566,7 +596,7 @@ class MCUServerLeft:
                         pass
                     except Exception as e:
                         logger.error(f"REQ/REP error: {e}")
-                
+
                 # ⭐ THÊM: Process PUSH/PULL (async commands)
                 if self.socket_pull in socks:
                     try:
@@ -588,7 +618,7 @@ class MCUServerLeft:
             logger.error(f"Server error: {e}")
         finally:
             self.shutdown()
-    
+
     def shutdown(self) -> None:
         """Shutdown the server"""
         self.running = False
@@ -625,12 +655,20 @@ def main():
     """Start the LEFT leg MCU server."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Bimo LEFT Leg MCU Control Server (6 Servos 4-9)")
+    parser = argparse.ArgumentParser(
+        description="Bimo LEFT Leg MCU Control Server (6 Servos 4-9)"
+    )
     parser.add_argument("--port", type=int, default=5556, help="ZeroMQ port")
-    parser.add_argument("--serial-port", type=str, default="/dev/ttyACM0", help="Servo serial port")
+    parser.add_argument(
+        "--serial-port", type=str, default="/dev/ttyACM0", help="Servo serial port"
+    )
     parser.add_argument("--speed", type=int, default=3400, help="Default servo speed")
-    parser.add_argument("--acceleration", type=int, default=254, help="Default servo acceleration")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")  # ✅ Thêm
+    parser.add_argument(
+        "--acceleration", type=int, default=254, help="Default servo acceleration"
+    )
+    parser.add_argument(
+        "--debug", action="store_true", help="Enable debug logging"
+    )  # ✅ Thêm
 
     args = parser.parse_args()
 
@@ -657,6 +695,7 @@ def main():
         logger.error(f"Failed to start server: {e}")
     finally:
         server.shutdown()
+
 
 if __name__ == "__main__":
     main()
