@@ -10,3 +10,9 @@
 # File Python tu sinh - khong bao gio commit
 __pycache__/
 *.pyc
+
+# Log/du lieu do sinh ra moi lan chay test - khong bao gio commit
+/logs/
+/imu_logs/
+*.log
+*.jsonl
