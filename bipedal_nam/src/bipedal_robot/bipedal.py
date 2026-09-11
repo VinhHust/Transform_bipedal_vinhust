@@ -25,14 +25,19 @@ from lerobot.motors.feetech import (
 )
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
 
-
 logger = logging.getLogger(__name__)
 
 
 class BipedalConfig:
     """Configuration for Bipedal Robot"""
-    def __init__(self, port: str = "/dev/ttyACM0", baudrate: int = 1_000_000,
-                 use_degrees: bool = False, disable_torque_on_disconnect: bool = True):
+
+    def __init__(
+        self,
+        port: str = "/dev/ttyACM0",
+        baudrate: int = 1_000_000,
+        use_degrees: bool = False,
+        disable_torque_on_disconnect: bool = True,
+    ):
         self.port = port
         self.baudrate = baudrate
         self.use_degrees = use_degrees
@@ -49,7 +54,9 @@ class BipedalRobot:
         if config is None:
             config = BipedalConfig()
         self.config = config
-        norm_mode_body = MotorNormMode.DEGREES if config.use_degrees else MotorNormMode.RANGE_M100_100
+        norm_mode_body = (
+            MotorNormMode.DEGREES if config.use_degrees else MotorNormMode.RANGE_M100_100
+        )
         self.bus = FeetechMotorsBus(
             port=self.config.port,
             motors={
@@ -88,7 +95,7 @@ class BipedalRobot:
 
     @property
     def is_connected(self) -> bool:
-        return self.bus.is_connected 
+        return self.bus.is_connected
 
     def connect(self) -> None:
         if self.is_connected:
@@ -122,7 +129,6 @@ class BipedalRobot:
             self.bus.write("Operating_Mode", name, OperatingMode.VELOCITY.value)
 
         self.bus.enable_torque()
-
 
     @staticmethod
     def _degps_to_raw(degps: float) -> int:
@@ -271,7 +277,7 @@ class BipedalRobot:
     ) -> None:
         """
         Giống SCServo WritePosEx: set position + speed + acceleration.
-        
+
         Args:
             motor_name: Motor name (e.g., "leg_knee_right")
             position: Target position (raw ticks hoặc normalized value)
@@ -304,10 +310,7 @@ class BipedalRobot:
 
     def read_leg_positions(self, normalize: bool = False) -> Dict[str, int]:
         """Read all leg motor positions"""
-        leg_motors = [
-            "leg_bub", "leg_hip", "leg_twist",
-            "leg_knee", "leg_foot"
-        ]
+        leg_motors = ["leg_bub", "leg_hip", "leg_twist", "leg_knee", "leg_foot"]
         positions = {}
         for motor_name in leg_motors:
             if motor_name in self.bus.motors:

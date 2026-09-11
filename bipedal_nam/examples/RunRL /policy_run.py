@@ -5,7 +5,9 @@ from pathlib import Path
 import sys
 import math
 
-sys.path.insert(0, str(Path(__file__).parent.parent)) 
+# File này nằm ở examples/RunRL/ (sâu thêm 1 cấp so với examples/ cũ),
+# nên phải lùi 3 cấp mới tới bipedal_nam/ - nơi có folder src/.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 from src.bipedal_robot.transformer import TransformerAPI
 

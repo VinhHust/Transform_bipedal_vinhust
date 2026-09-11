@@ -42,8 +42,13 @@ except FileNotFoundError:
 
 
 # Low-pass filter
+<<<<<<< HEAD
+ACCEL_ALPHA = 1.0
+GYRO_ALPHA = 1.0
+=======
 ACCEL_ALPHA = 0.2
 GYRO_ALPHA = 0.2
+>>>>>>> b84584f (thay đổi cách calib sang ellipsolid, plan kế hoạch đổi madgwick sang thư viện imufusion)
 
 filtered_ax, filtered_ay, filtered_az = 0.0, 0.0, 0.0
 filtered_gx, filtered_gy, filtered_gz = 0.0, 0.0, 0.0

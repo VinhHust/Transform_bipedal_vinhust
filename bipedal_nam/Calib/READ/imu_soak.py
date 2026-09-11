@@ -63,19 +63,26 @@ I_ROLL, I_PITCH = COLS.index("roll"), COLS.index("pitch")
 
 
 def load_calib():
-    """Nap calib. Uu tien calibfull.json (ban dung cho server)."""
+    """Nap calib. Uu tien calibfull.json (ban dung cho server).
+
+    Tra ve them DLPF ghi trong meta luc calib. Banner doi chieu no voi DLPF
+    dang chay, thay vi hardcode mot chuoi - hardcode thi doi cach calib la
+    dong chu thich hoa sai lang le.
+    """
     p = HERE.parent.parent / "src/leg_server/calibfull.json"
     if p.exists():
         c = json.load(open(p))
         return (np.array(c["accel"]["SM"]), np.array(c["accel"]["bias"]),
                 np.array([c["gyro"]["gx_bias"], c["gyro"]["gy_bias"],
                           c["gyro"]["gz_bias"]]),
-                c["gyro"]["gyro_sensitivity"], str(p))
-    a = json.load(open(HERE / "vinh_accel_calib.json"))["accel"]
+                c["gyro"]["gyro_sensitivity"], str(p),
+                c.get("meta", {}).get("dlpf"))
+    a = json.load(open(HERE / "vinh_accel_calib_ellipsoid.json"))
     g = json.load(open(HERE / "vinhgyrocalib.json"))
-    return (np.array(a["SM"]), np.array(a["bias"]),
+    return (np.array(a["accel"]["SM"]), np.array(a["accel"]["bias"]),
             np.array([g["gx_bias"], g["gy_bias"], g["gz_bias"]]),
-            g["gyro_sensitivity"], "vinh_*.json")
+            g["gyro_sensitivity"], "vinh_accel_calib_ellipsoid.json",
+            a.get("meta", {}).get("dlpf"))
 
 
 def tilt(a):
@@ -252,14 +259,19 @@ def make_imu(dlpf):
     return IMU
 
 
-def banner(args, src, GS, a_acc, a_gyr, out, title, tail):
+def banner(args, src, GS, a_acc, a_gyr, out, title, tail, calib_dlpf):
     fsr_g = "dps500" if abs(GS - 65.5) < 1 else "dps250" if abs(GS - 131) < 1 else "?"
+    if calib_dlpf is None:
+        note = "  (calib khong ghi DLPF - khong doi chieu duoc)"
+    elif args.dlpf == calib_dlpf:
+        note = "  (giong calib)"
+    else:
+        note = f"  (KHAC calib={calib_dlpf} - dang A/B)"
     print(f"\n{'='*78}")
     print(f" {title}")
     print(f" Calib : {src}")
     print(f" Tang 1 FSR       : gpm4 / {fsr_g} (sens={GS})")
-    print(f" Tang 2 DLPF HW   : {args.dlpf}"
-          + ("  (giong calib)" if args.dlpf == "off" else "  (KHAC calib - dang A/B)"))
+    print(f" Tang 2 DLPF HW   : {args.dlpf}{note}")
     print(f" Tang 6 EMA alpha : accel={a_acc}  gyro={a_gyr}"
           + ("  (tat loc)" if a_acc >= 1.0 else "")
           + ("  [warm-start]" if args.warm_start else "  [khoi tao 0.0 nhu gyroacce.py]"))
@@ -299,11 +311,11 @@ def parse_angles(s):
 
 # ====================================================================== ANGLES
 def mode_angles(args, pipe_args, out):
-    SM, AB, GB, GS, src, a_acc, a_gyr = pipe_args
+    SM, AB, GB, GS, src, a_acc, a_gyr, calib_dlpf = pipe_args
     IMU = make_imu(args.dlpf)
     banner(args, src, GS, a_acc, a_gyr, out,
            "DO SAI SO ROLL / PITCH THEO GOC THAT",
-           f"Bo qua {args.settle:.1f}s dau moi doan cho on dinh.")
+           f"Bo qua {args.settle:.1f}s dau moi doan cho on dinh.", calib_dlpf)
 
     if not sys.stdin.isatty():
         sys.exit("Che do --angles can terminal that (dung stdin). Bo --angles de chay soak.")
@@ -493,7 +505,8 @@ def report_angles(segs, ev, pipe, out, args, a_acc, a_gyr):
                   "   - |a| dung 9.81 ma goc van lech deu theo 1 huong",
                   "     -> lech co hoc: mat phang IMU khong song song mat ban chuan.",
                   "   - Lech tang dan theo goc lon -> ma tran SM (cross-axis) chua chuan,",
-                  "     calib lai accel voi 6 mat that vuong goc.",
+                  "     calib lai bang calib_accel_ellipsoid.py, lan them huong CANH/GOC",
+                  "     cho do phu mat cau tang.",
                   "   - Lech ngau nhien, std lon, co su kien -> xem events.csv."]
     else:
         L.append(" (khong co doan nao)")
@@ -507,11 +520,11 @@ def report_angles(segs, ev, pipe, out, args, a_acc, a_gyr):
 
 # ======================================================================== SOAK
 def mode_soak(args, pipe_args, out):
-    SM, AB, GB, GS, src, a_acc, a_gyr = pipe_args
+    SM, AB, GB, GS, src, a_acc, a_gyr, calib_dlpf = pipe_args
     IMU = make_imu(args.dlpf)
     banner(args, src, GS, a_acc, a_gyr, out,
            f"SOAK TEST 1 IMU - {args.minutes:.0f} phut @ {args.rate or 'max'} Hz",
-           "DE IMU YEN O MOT GOC CO DINH. Ctrl+C de dung som.")
+           "DE IMU YEN O MOT GOC CO DINH. Ctrl+C de dung som.", calib_dlpf)
 
     pipe = Pipeline(SM, AB, GB, GS, a_acc, a_gyr, args.warm_start)
     ev = EventWriter(out / "events.csv")
@@ -633,18 +646,20 @@ def main():
                     help="he so low-pass EMA. 0.2=gyroacce.py, 0.15=leg_server, 1.0=tat")
     ap.add_argument("--alpha-gyro", type=float, default=None,
                     help="rieng cho gyro (mac dinh = --alpha)")
-    ap.add_argument("--dlpf", choices=list(DLPF), default="off",
-                    help="DLPF phan cung. off = giong calib hien tai")
+    ap.add_argument("--dlpf", choices=list(DLPF), default="low",
+                    help="DLPF phan cung. low = giong calib ellipsoid."
+                         " Do tren log: off lam nhieu gyro gap ~15 lan"
+                         " (std 2.5 vs 0.27 deg/s) - chi dung de A/B")
     ap.add_argument("--warm-start", action="store_true",
                     help="khoi tao EMA bang mau dau (gyroacce.py khoi tao bang 0.0)")
     ap.add_argument("--full", action="store_true", help="soak: ghi moi mau vao all.csv")
     ap.add_argument("--out", default=str(HERE / "logs"))
     args = ap.parse_args()
 
-    SM, AB, GB, GS, src = load_calib()
+    SM, AB, GB, GS, src, calib_dlpf = load_calib()
     a_acc = args.alpha
     a_gyr = args.alpha if args.alpha_gyro is None else args.alpha_gyro
-    pipe_args = (SM, AB, GB, GS, src, a_acc, a_gyr)
+    pipe_args = (SM, AB, GB, GS, src, a_acc, a_gyr, calib_dlpf)
 
     tag = "angles" if args.angles else "soak"
     out = Path(args.out) / f"{tag}_{datetime.now():%Y%m%d_%H%M%S}"

@@ -2,11 +2,11 @@
 # =============================================
 # Sync project giữa máy local <-> Pi (mobile2)
 # =============================================
-
+# đứng ở dev_team rồi chạy ./sync_pi.sh pull để kéo từ Pi về local, ./sync_pi.sh push để đẩy từ local lên Pi
 PI_HOST="mobile2.local"
 PI_USER="mobile2"
 PI_DIR="/home/mobile2/Transform_bipedal/"
-LOCAL_DIR="/home/cat21/Documents/projects/Transformer/Transform_bipedal/"
+LOCAL_DIR="/home/lenovo-loq/Desktop/Transform_bipedal_vinhust"
 
 EXCLUDE_ARGS=(
     --exclude '.git'
@@ -15,6 +15,7 @@ EXCLUDE_ARGS=(
     --exclude 'logs/'
     --exclude 'imu_logs/'
     --exclude '*.log'
+
     --exclude '*.jsonl'
 )
 

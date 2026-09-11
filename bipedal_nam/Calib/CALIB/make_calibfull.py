@@ -3,8 +3,8 @@
 # Truoc day calibfull.json duoc CHEP TAY tu 2 file roi -> khong ai biet so trong
 # do lay tu lan calib nao. File nay gop tu dong va ghi lai nguon goc vao "meta".
 #
-# CHAY:  python3 make_calibfull.py --side left
-#        python3 make_calibfull.py --side left --install   (ghi luon cho leg_server)
+# CHAY:  python3 make_calibfull.py --unit 2
+#        python3 make_calibfull.py --unit 2 --install   (nap luon cho leg_server)
 #
 # Xem docs/plan.md buoc A3.
 

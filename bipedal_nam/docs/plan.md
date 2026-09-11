@@ -10,7 +10,7 @@
 | A | Calib xong IMU **'2'** (con đang cầm) | A1 ✅ · A2 ✅ · A3 ✅ · A4 ⬜ |
 | B | Calib xong IMU **'1'** (con còn lại) | ⬜ |
 | C | Lắp lên robot + calib lắp đặt | ⬜ (bị chặn bởi cơ khí) |
-| D | Fusion | ⬜ |
+| D | Fusion → **imufusion**, xem `fusion.md` | D1 ⬜ · D2 ⬜ · D3 ⬜ · D4 ⬜ |
 
 > ## ⚠️ Dán nhãn vật lý lên hai con IMU, ngay bây giờ
 >
@@ -185,22 +185,26 @@ này — ‖a‖ không đổi khi xoay, nên nó mù về hướng tuyệt đ�
 
 ## Giai đoạn D — Fusion
 
-Trước khi ghép hai IMU, sửa ba lỗi đã biết trong đường Madgwick
-(`analysis.md` §6). Cả ba sửa được ngay, không cần phần cứng, nhưng **làm sau
-A4** vì cần dữ liệu sạch để so sánh trước/sau.
+> **Kế hoạch chi tiết: `fusion.md`.**
+
+Quyết định: **chuyển sang `imufusion`** (thuật toán chương 7 luận án Madgwick)
+thay vì vá Madgwick chương 3 đang dùng. Việc này xoá luôn 2 trong 3 lỗi đã biết
+của đường Madgwick (`analysis.md` §6):
 
 1. **`beta` lệch nhau** — `gyroacce.py` dùng 0.033, `leg_server_left.py` dùng
-   0.1. `beta` là hệ số quyết định tin gyro hay tin accel nhiều hơn: lớn thì bám
-   accel nhanh nhưng nhiễu, nhỏ thì mượt nhưng trôi. Hai script khác beta nghĩa
-   là cùng một dữ liệu cho ra hai góc khác nhau — không so sánh được.
-2. **Quaternion khởi tạo `[1,0,0,0]`** — tức giả định robot đang nằm ngang hoàn
-   hảo lúc bật nguồn. Phải khởi tạo từ accel: đọc vài chục mẫu, suy ra roll/pitch
-   ban đầu.
-3. **`updateIMU()` không được truyền `dt` thật** — nó đang tin vào
-   `frequency=50` cố định, trong khi vòng lặp thực tế không đều 20 ms. Sai `dt`
-   là sai trực tiếp vào tích phân gyro.
+   0.1, cùng dữ liệu ra hai góc khác nhau. → **biến mất**, imufusion không có
+   `beta`.
+2. **Quaternion khởi tạo `[1,0,0,0]`** — giả định robot nằm ngang hoàn hảo lúc
+   bật nguồn. → **được lo** bởi *startup ramp*.
+3. **`updateIMU()` không được truyền `dt` thật** — đã xác nhận:
+   `leg_server_left.py:321` không truyền `dt`, nên `ahrs` 0.4.0 dùng `1/50` cố
+   định, trong khi `dt` đo thật có `p99 = 41.5 ms` và 8.92 % số mẫu lệch quá
+   20 %. → **vẫn phải tự lo**, bằng `set_sample_period()`.
 
-Xong ba cái đó mới tới fusion hai IMU trên laptop.
+Đợt này **chỉ làm offline**, chưa đụng `leg_server_left.py`. Không cần thu dữ
+liệu mới — log `angles_20260831_183200` (712 s, DLPF=low) đủ dùng.
+
+Xong D mới tới fusion hai IMU trên laptop.
 
 ### Trôi bias gyro — hệ quả không đối xứng giữa các trục
 
@@ -260,110 +264,3 @@ python3 Calib/READ/check_sensor.py
   bị ghi đè).
 - Bù nhiệt (tầng 3 trong `methods.md`) — chỉ làm nếu A4 hoặc D lộ ra hiện tượng
   trôi theo nhiệt. Nghi phạm đã có sẵn: bias X 372 mg ở A1.
-
----
-
-# Phụ lục — Bước nào phải làm lại khi đổi vị trí IMU?
-
-Câu này chạm đúng vào chỗ quan trọng nhất của cả kế hoạch. Câu trả lời gọn:
-**A1–A3 và D làm một lần là xong vĩnh viễn; C phải làm lại mỗi khi động vào cơ
-khí.** Nhưng "thay đổi vị trí" có ba nghĩa khác nhau và mỗi nghĩa cho một đáp án
-khác, nên tôi tách ra.
-
-## Ranh giới nằm ở đâu
-
-Toàn bộ việc calib chia làm đúng hai nửa, và đường cắt chính là **bất biến với
-phép xoay** (rotation invariance).
-
-**Nửa A** đo những thứ thuộc về bản thân con chip: scale, cross-axis, bias.
-Ellipsoid fit đo chúng bằng ràng buộc ‖a‖ = 9.80665 — mà độ dài vector thì không
-đổi khi xoay. Đó chính là lý do nó miễn nhiễm với cách bạn đặt.
-
-**Nửa C** đo phép xoay giữa hệ trục con chip và hệ trục robot. Nó đo đúng cái mà
-nửa A mù tịt.
-
-Nên hai tính chất này là **cùng một sự thật nhìn từ hai phía**: cái làm ellipsoid
-fit mù về hướng cũng chính là cái làm nó không cần làm lại khi đổi hướng. Còn C
-thì theo định nghĩa là 100% phụ thuộc vị trí.
-
-## Ba loại "thay đổi vị trí"
-
-| Bạn làm gì | Phải làm lại bước nào |
-|---|---|
-| **Xoay/lật/nghiêng cả cụm** (robot ngã, bê robot đi, dựng chân lên) | **Không bước nào.** Tất cả còn nguyên giá trị. |
-| **Tháo board ra lắp lại, đổi chỗ gắn, đổi hướng gắn** | **Chỉ C.** A1–A3 vẫn đúng nguyên. |
-| **Hàn lại, siết vít khác lực, board bị vênh, đổi đế gắn** | **C, và có thể cả A1.** Xem phần dưới. |
-
-Loại thứ nhất là loại hay gây hiểu nhầm nhất. Bê robot lên, xoay ngang, đặt xuống
-— không có gì hỏng cả. Cảm biến không "nhớ" tư thế nào là gốc; C nhớ hộ nó, mà C
-là quan hệ giữa board và khung robot, hai thứ đó dính chặt vào nhau thì xoay cả
-cụm chẳng đổi gì.
-
-## Cái bẫy: A miễn nhiễm với XOAY, không miễn nhiễm với ỨNG SUẤT
-
-Đây là chỗ cần cẩn thận, và dữ liệu của chính bạn đã cảnh báo.
-
-Bias trục X của con IMU này là **372 mg**, gấp ~15 lần mức datasheet. Chẩn đoán
-khả dĩ nhất là **ứng suất cơ khí lên đế chip** (package stress) — board vênh, mối
-hàn kéo, vít siết chặt làm biến dạng nhẹ đế nhựa, và MEMS accel phản ứng bằng
-cách lệch offset hàng trăm mg.
-
-Hệ quả: **bắt vít board lên chân robot rất có thể làm bias đổi.** Không phải vì
-đổi hướng — mà vì đổi lực ép.
-
-Nên thứ tự đúng không phải "calib xong rồi lắp", mà là:
-
-1. Calib trên hộp (A1, A2) — có bộ hệ số xuất phát.
-2. Lắp lên robot, siết vít đúng lực sẽ dùng lâu dài.
-3. **Chạy lại A4 sau khi lắp.** Nếu ‖a‖ vẫn nằm trong 0.1% thì ứng suất không làm
-   hỏng gì, giữ nguyên hệ số. Nếu tệ đi rõ rệt → phải làm lại A1 **ở trạng thái
-   đã lắp**.
-
-Đó là công dụng thứ hai của A4 mà tôi chưa nói tới: nó vừa là bài nghiệm thu hệ
-số, vừa là **máy dò xem việc lắp đặt có phá hỏng calib không**. Chạy nó hai lần,
-trước và sau khi lắp, so hai con số.
-
-Nếu buộc phải làm lại A1 khi đã lắp: bạn cần xoay được cả cụm qua nhiều hướng.
-Với một chân robot tháo rời thì làm được — bê cả chân lên lăn qua các hướng.
-Ellipsoid fit không quan tâm bạn đang cầm cái gì, chỉ cần đứng yên và rải đều
-hướng.
-
-## Những thứ khác làm hỏng calib, không liên quan vị trí
-
-Trả lời đủ thì phải kể cả nhóm này, vì chúng mới là nguyên nhân bạn sẽ gặp thường
-xuyên hơn:
-
-**A2 (gyro bias) hỏng theo THỜI GIAN và NHIỆT ĐỘ, không theo vị trí.** Bằng chứng
-ngay trong dữ liệu của bạn: bias tháng 7 là [−14.7, 35.9, −31.4] LSB, cửa sổ yên
-tĩnh hôm nay đo được [−4.0, 28.8, −35.5]. Trôi 0.16 °/s trên trục X sau một tháng
-— tích phân 60 giây là 9.7° sai. Calib gyro là loại **có hạn sử dụng**, và hạn đó
-ngắn. Không có cách nào chữa bằng calib offline; lời giải thật nằm ở giai đoạn D
-— coi bias gyro là biến trạng thái, ước lượng liên tục lúc chạy.
-
-**A1 cũng trôi theo nhiệt độ**, chậm hơn nhiều, và càng trôi mạnh nếu bias lớn do
-ứng suất — tức là con IMU này thuộc nhóm rủi ro. Nếu sau này thấy góc trôi khi
-robot chạy nóng lên, đây là nghi phạm đầu tiên.
-
-**Đổi FSR hoặc DLPF là vô hiệu hóa toàn bộ.** Đổi `gpm4` → `gpm8` thì mọi hệ số
-accel sai gấp đôi. Đổi DLPF thì mức nhiễu đổi, kéo theo `beta` của Madgwick không
-còn hợp. Đây là lý do tôi đã bật DLPF `low` ở cả bốn chỗ — calib accel, calib
-gyro, đọc, và `leg_server`.
-
-**D là thuần phần mềm.** Sửa `beta`, khởi tạo quaternion từ accel, truyền `dt`
-thật — ba cái này không dính gì tới vị trí, nhiệt độ hay thời gian. Sửa một lần
-là xong.
-
-## Tóm lại
-
-| Bước | Bản chất | Vòng đời |
-|---|---|---|
-| A1 accel | tính chất con chip | vĩnh viễn — trừ khi đổi ứng suất cơ khí, nhiệt độ, hoặc FSR |
-| A2 gyro | trôi theo thời gian | **có hạn** — calib lại định kỳ, hoặc ước lượng online ở D |
-| A3 gộp file | sổ sách | làm lại khi A1 hoặc A2 đổi |
-| A4 nghiệm thu | bài kiểm tra | chạy lại sau mỗi lần lắp đặt — nó là máy dò |
-| C lắp đặt | quan hệ chip ↔ robot | **làm lại mỗi lần tháo/lắp/đổi chỗ** |
-| D fusion | phần mềm | vĩnh viễn |
-
-Và đây chính là lý do tại sao **2 lỗ định vị + 2 vít** ở giai đoạn C không phải
-chi tiết vặt. Có nó thì tháo board ra vệ sinh rồi lắp lại đúng chỗ cũ — C vẫn còn
-giá trị. Không có nó thì mỗi lần chạm vào board là mất C, phải làm lại từ đầu.
