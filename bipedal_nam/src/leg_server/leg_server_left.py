@@ -138,11 +138,11 @@ class MCUServerLeft:
 
         #  Servo limits for LEFT leg
         self.servo_limits = {
-            4: {"min": 1782, "max": 4050},
-            5: {"min": 1994, "max": 2470},
-            6: {"min": 1062, "max": 3097},
-            7: {"min": 949, "max": 3156},
-            8: {"min": 1438, "max": 2490},
+            4: {"min": 996, "max": 2146},
+            5: {"min": 1676, "max": 2396},
+            6: {"min": 1030, "max": 3060},
+            7: {"min": 996, "max": 3051},
+            8: {"min": 1416, "max": 2711},
             9: {"min": 1802, "max": 2646},
         }
 
@@ -318,27 +318,10 @@ class MCUServerLeft:
         imu_loop hieu nham la "chip chua san sang", chi ngu 1ms roi thu lai
         -> vong lap loi 1000 Hz, ngap log va an het mot loi CPU.
         """
-        t0 = time.monotonic()
-        ready = IMU.dataReady()
-        t1 = time.monotonic()
-
-        if not ready:
-            self._nready = getattr(self, "_nready", 0) + 1
-            if self._nready % 100 == 0:
-                logger.warning(
-                    f"[IMU_DBG] dataReady False {self._nready} lan lien tiep, moi lan {1000*(t1-t0):.1f}ms"
-                )
+        if not IMU.dataReady():
             return False
 
-        self._nready = 0
         IMU.getAgmt()
-        t2 = time.monotonic()
-
-        if t1 - t0 > 0.005 or t2 - t1 > 0.005:
-            logger.warning(
-                f"[IMU_DBG] I2C cham: dataReady={1000*(t1-t0):.0f}ms getAgmt={1000*(t2-t1):.0f}ms"
-            )
-
         t_mono = time.monotonic()  # do dt - dong ho chi tien
         t_sample = time.time()  # dau thoi gian gui ve laptop - gio treo tuong
 

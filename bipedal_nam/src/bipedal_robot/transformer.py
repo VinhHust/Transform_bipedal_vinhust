@@ -99,15 +99,15 @@ class TransformerAPI:
 
         # Servo configuration (like walking_gait_dual.py)
         self.servo_config_left = {
-            5: {"name": "hip", "home_ticks": 2048, "min_ticks": 1545, "max_ticks": 2365},
-            7: {"name": "knee", "home_ticks": 2048, "min_ticks": 1313, "max_ticks": 3231},
-            8: {"name": "foot", "home_ticks": 2048, "min_ticks": 1111, "max_ticks": 2363},
+            5: {"name": "hip", "home_ticks": 2048, "min_ticks": 1676, "max_ticks": 2396},
+            7: {"name": "knee", "home_ticks": 2048, "min_ticks": 996, "max_ticks": 3051},
+            8: {"name": "foot", "home_ticks": 2048, "min_ticks": 1416, "max_ticks": 2711},
         }
 
         self.servo_config_right = {
-            5: {"name": "hip", "home_ticks": 2048, "min_ticks": 2240, "max_ticks": 3075},
-            7: {"name": "knee", "home_ticks": 2048, "min_ticks": 1635, "max_ticks": 3545},
-            8: {"name": "foot", "home_ticks": 2048, "min_ticks": 1413, "max_ticks": 2532},
+            5: {"name": "hip", "home_ticks": 2048, "min_ticks": 1700, "max_ticks": 2420},
+            7: {"name": "knee", "home_ticks": 2048, "min_ticks": 1045, "max_ticks": 3100},
+            8: {"name": "foot", "home_ticks": 2048, "min_ticks": 1385, "max_ticks": 2680},
         }
 
         # ✅ THÊM: IMU cache + thread

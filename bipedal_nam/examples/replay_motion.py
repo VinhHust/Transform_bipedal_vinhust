@@ -155,7 +155,7 @@ def main():
     # REPLAY FIRST 200 STEPS
     # ========================================================================
     print("[3/3] Replaying first 200 steps...")
-    replay_first_steps(robot, motion_data, num_steps=300, speed_factor=0.85)
+    replay_first_steps(robot, motion_data, num_steps=300, speed_factor=0.5)
 
     # ========================================================================
     # RETURN TO HOME

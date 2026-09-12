@@ -134,12 +134,12 @@ class MCUServer:
 
         # SỬA LẠI THEO CÁI ĐÃ CALIB TRONG APP FD
         self.servo_limits = {
-            4: {"min": 77, "max": 2230},
-            5: {"min": 1970, "max": 2380},
-            6: {"min": 1000, "max": 3075},
+            4: {"min": 1950, "max": 3100},
+            5: {"min": 1700, "max": 2420},
+            6: {"min": 1030, "max": 3060},
             7: {"min": 1045, "max": 3100},
-            8: {"min": 1280, "max": 2416},
-            9: {"min": 1780, "max": 2680},
+            8: {"min": 1385, "max": 2680},
+            9: {"min": 1873, "max": 2641},
         }
 
         # ✅ SỬA: Current positions CHỈ 6 servos (motor 4-9)
