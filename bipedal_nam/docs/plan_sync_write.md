@@ -125,4 +125,41 @@ def sync_write(
 - 2 file sửa mỗi bên: `bipedal_robot/bipedal_{left,right}.py` (tầng 2) và
   `leg_server_debug/{left,right}.py` (tầng 3). Tầng 1 (lerobot) KHÔNG đụng.
 - Luồng đọc feedback (`Present_Position`) là nơi bắt lỗi động — không thay đổi.
+
+---
+
+## Kiểm chứng tầng 1 trên Pi (chạy TRƯỚC khi tin tưởng)
+
+> Tầng 1 (lerobot) không viết, chỉ KIỂM CHỨNG. Bản signature ở trên lấy từ
+> lerobot `main` trên GitHub; con Pi chạy bản submodule đã ghim → có thể khác.
+
+### Rủi ro và mức độ
+| Tham số | Rủi ro | Bằng chứng |
+|---|---|---|
+| `num_retry=` | ~0 (yên tâm) | `bipedal_left.py:266` (`stop_base`) đã dùng `num_retry=5`, chạy production được |
+| `normalize=` | CHƯA chứng minh | Không lời gọi `sync_write` cũ nào truyền `normalize=` → chưa "thử lửa" |
+| `"Goal_Position" in normalized_data` | thấp | Nếu KHÔNG normalize thì `normalize=False` chỉ là no-op vô hại |
+
+### Vì sao không đáng lo
+- Nếu bản Pi không nhận `normalize=` → văng `TypeError` **ngay lần gọi đầu**.
+- Lỗi ồn ào (fail loud), thấy liền lúc test — không phải lỗi âm thầm "chân đá sai".
+
+### Cách check `normalize` trên Pi
+```python
+# 1) Xem signature sync_write bản THẬT trên Pi
+import inspect
+from lerobot.motors.feetech import FeetechMotorsBus
+print(inspect.signature(FeetechMotorsBus.sync_write))
+print(inspect.getfile(FeetechMotorsBus))   # file gốc ở đâu
+
+# 2) Sau khi khởi tạo bus (bus = robot.bus), check cái bẫy:
+print("Goal_Position" in bus.normalized_data)   # kỳ vọng: True
+```
+
+### Diễn giải kết quả
+- Signature CÓ `normalize` và `num_retry` → code hiện tại chạy ngon, không đổi gì.
+- Signature THIẾU `normalize` → **sửa code của con** (bỏ kwarg `normalize=False`),
+  KHÔNG cập nhật submodule lerobot (đụng thứ cả robot đang phụ thuộc → rủi ro cao hơn).
+- `"Goal_Position" in normalized_data` == `True` → giữ nguyên `normalize=False` (đúng, cần thiết).
+- == `False` → position vốn không normalize, `normalize=False` chỉ là no-op, vẫn để cho an toàn.
 ```

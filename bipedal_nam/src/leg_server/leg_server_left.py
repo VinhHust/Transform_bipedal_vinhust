@@ -401,45 +401,46 @@ class MCUServerLeft:
                 logger.error(f"Expected 6 positions, got {len(positions)}")
                 return False
 
+            # 1. Dựng dictionary chứa đích đến của tất cả các khớp
+            # THAY GỬI TUẦN TỰ TỚI TỪNG KHỚP BẰNG GỬI 1 PHÁT CHO TẤT CẢ CÁC KHỚP
+            target_dict = {}
             success_count = 0
             fail_count = 0
 
-            # serial_lock (khong phai write_lock): giu cong serial suot ca 6 lenh ghi
-            # de luong doc feedback khong chen vao giua
-            with self.serial_lock:
-                for servo_id in range(4, 10):
-                    motor_name = self.servo_map[servo_id]
-                    pos_idx = servo_id - 4
-                    target_pos = positions[pos_idx]
+            for servo_id in range(4, 10):
+                motor_name = self.servo_map[servo_id]
+                pos_idx = servo_id - 4
+                target_pos = positions[pos_idx]
 
-                    if motor_name not in self.robot.bus.motors:
-                        logger.warning(f"Motor {motor_name} (ID {servo_id}) not found")
-                        fail_count += 1
-                        continue
+                if motor_name not in self.robot.bus.motors:
+                    logger.warning(f"Motor {motor_name} (ID {servo_id}) not found")
+                    fail_count += 1
+                    continue
 
-                    limits = self.servo_limits[servo_id]
-                    clamped_pos = max(limits["min"], min(limits["max"], target_pos))
+                limits = self.servo_limits[servo_id]
+                clamped_pos = max(limits["min"], min(limits["max"], target_pos))
+                target_dict[motor_name] = clamped_pos
 
+            # 2. Gọi sync_write 1 lần cho toàn bộ dictionary
+
+            if target_dict:
+                with self.serial_lock:
                     try:
                         logger.debug(
-                            f"Sending to {motor_name} (ID {servo_id}): pos={clamped_pos}, "
+                            f"Sending sync_write to {list(target_dict.keys())}, "
                             f"speed={self.servo_speed}, accel={self.servo_accel}"
                         )
-
-                        # KHONG khoa serial_lock o day: vong lap ngoai da giu roi,
-                        # threading.Lock khong reentrant -> khoa lai se treo
-                        self.robot.write_pos_ex(
-                            motor_name=motor_name,
-                            position=clamped_pos,
+                        self.robot.write_leg_positions_sync(
+                            positions=target_dict,
                             speed=self.servo_speed,
                             acceleration=self.servo_accel,
-                            normalize=False,
                         )
-                        success_count += 1
-
+                        success_count = len(target_dict)
                     except Exception as e:
-                        logger.error(f"Failed to set {motor_name} (ID {servo_id}): {e}")
-                        fail_count += 1
+                        logger.error(f"Failed sync_write for LEFT leg: {e}")
+                        fail_count += len(target_dict)
+            elif fail_count == 0:  # Trường hợp mảng truyền vào rỗng
+                fail_count = 6
 
             self.target_positions = positions.copy()
 
