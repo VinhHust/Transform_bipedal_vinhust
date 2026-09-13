@@ -6,7 +6,7 @@
 PI_HOST="mobile2.local"
 PI_USER="mobile2"
 PI_DIR="/home/mobile2/Transform_bipedal/"
-LOCAL_DIR="/home/lenovo-loq/Desktop/Transform_bipedal_vinhust"
+LOCAL_DIR="/home/lenovo-loq/Desktop/Transform_bipedal_vinhust/"
 
 EXCLUDE_ARGS=(
     --exclude '.git'

@@ -300,6 +300,39 @@ class BipedalRobot:
         # 3) Set position
         self.bus.write("Goal_Position", motor_name, position, normalize=normalize)
 
+    # GỬI GÓI DATA CHO ĐỘNG CƠ ĐỒNG THỜI 1 LÚC THAY VÌ CHẠY TRONG FOR LOOP
+    def write_leg_positions_sync(
+        self,
+        positions: Dict[str, int],
+        speed: int = 1000,
+        acceleration: int = 50,
+    ) -> None:
+        """
+        Ghi đồng bộ vị trí, tốc độ và gia tốc cho nhiều khớp cùng lúc bằng
+        sync_write.
+        """
+        if not positions:
+            return
+
+        motor_names = list(positions.keys())
+
+        # 1) Set acceleration (đồng loạt cho các motor)
+        try:
+            self.bus.sync_write("Acceleration", {m: acceleration for m in motor_names})
+        except Exception as e:
+            logger.warning(f"Failed to set sync acceleration: {e}")
+
+        # 2) Set speed (đồng loạt cho các motor)
+        try:
+            self.bus.sync_write("Goal_Velocity", {m: speed for m in motor_names})
+        except Exception as e:
+            logger.warning(f"Failed to set sync speed: {e}")
+
+        # 3) Set position
+        # LƯU Ý QUAN TRỌNG: Phải set normalize=False vì positions là raw ticks.
+        # num_retry=5 giúp tăng tính ổn định nếu có nhiễu bus.
+        self.bus.sync_write("Goal_Position", positions, normalize=False, num_retry=5)
+
     def read_motor_position(self, motor_name: str, normalize: bool = False) -> int:
         """Read current position of motor"""
         try:
