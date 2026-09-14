@@ -263,7 +263,9 @@ class TransformerAPI:
 
             # Then move to INITIAL pose
             logger.info("\n🎯 Moving both legs to INITIAL POSE...")
-            if not self.move_legs_to_initial_pose(speed=500):
+            if not self.move_legs_to_initial_pose(
+                speed=500
+            ):  # HẠ SPEED LÚC TƯ HOME VỀ INITIAL POSE XUỐNG
                 logger.error("❌ Failed to move to initial pose")
                 return False
 

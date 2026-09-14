@@ -185,8 +185,8 @@ class MCUServerLeft:
         self.control_rate = 50  # Hz
         self.last_update_time = time.time()
         self.update_thread = None
-        self.imu_thread = None
-        self.servo_thread = None
+        self.imu_thread = None  
+        self.servo_thread = None  
 
         # Thread locks
         self.read_lock = threading.Lock()
@@ -194,9 +194,7 @@ class MCUServerLeft:
         self.imu_lock = threading.Lock()
         self.serial_lock = threading.Lock()
 
-        logger.info(
-            f"MCUServerLeft initialized (6 LEFT leg servos 4-9) on port {zmq_port}"
-        )
+        logger.info(f"MCUServerLeft initialized (6 LEFT leg servos 4-9) on port {zmq_port}")
 
     def init_zmq(self) -> bool:
         """Initialize ZeroMQ sockets - BOTH REQ/REP and PUSH/PULL"""
@@ -209,9 +207,7 @@ class MCUServerLeft:
             self.socket_pull = self.context.socket(zmq.PULL)
             self.socket_pull.setsockopt(zmq.RCVTIMEO, 100)
             self.socket_pull.bind(f"tcp://*:{self.zmq_port + 100}")  # 5656
-            logger.info(
-                f"✓ PUSH/PULL socket bound to port {self.zmq_port + 100} (async commands)"
-            )
+            logger.info(f"✓ PUSH/PULL socket bound to port {self.zmq_port + 100} (async commands)")
 
             self.poller = zmq.Poller()
             self.poller.register(self.socket_rep, zmq.POLLIN)
@@ -291,9 +287,7 @@ class MCUServerLeft:
 
                     # CHỈ đọc position (1 read per motor ~20ms)
                     with self.serial_lock:
-                        pos = self.robot.bus.read(
-                            "Present_Position", motor_name, normalize=False
-                        )
+                        pos = self.robot.bus.read("Present_Position", motor_name, normalize=False)
 
                     if pos is not None and pos > 0:
                         with self.read_lock:
@@ -301,9 +295,7 @@ class MCUServerLeft:
                     else:
                         with self.read_lock:
                             old_value = self.state_data["servo_pos"][idx]
-                        logger.warning(
-                            f" {motor_name}: read failed, keeping {old_value}"
-                        )
+                        logger.warning(f" {motor_name}: read failed, keeping {old_value}")
 
                     # (Chỉ enable khi debug hoặc monitor robot health)
 
@@ -409,46 +401,45 @@ class MCUServerLeft:
                 logger.error(f"Expected 6 positions, got {len(positions)}")
                 return False
 
-            # 1. Dựng dictionary chứa đích đến của tất cả các khớp
-            # THAY GỬI TUẦN TỰ TỚI TỪNG KHỚP BẰNG GỬI 1 PHÁT CHO TẤT CẢ CÁC KHỚP
-            target_dict = {}
             success_count = 0
             fail_count = 0
 
-            for servo_id in range(4, 10):
-                motor_name = self.servo_map[servo_id]
-                pos_idx = servo_id - 4
-                target_pos = positions[pos_idx]
+            # serial_lock (khong phai write_lock): giu cong serial suot ca 6 lenh ghi
+            # de luong doc feedback khong chen vao giua
+            with self.serial_lock:
+                for servo_id in range(4, 10):
+                    motor_name = self.servo_map[servo_id]
+                    pos_idx = servo_id - 4
+                    target_pos = positions[pos_idx]
 
-                if motor_name not in self.robot.bus.motors:
-                    logger.warning(f"Motor {motor_name} (ID {servo_id}) not found")
-                    fail_count += 1
-                    continue
+                    if motor_name not in self.robot.bus.motors:
+                        logger.warning(f"Motor {motor_name} (ID {servo_id}) not found")
+                        fail_count += 1
+                        continue
 
-                limits = self.servo_limits[servo_id]
-                clamped_pos = max(limits["min"], min(limits["max"], target_pos))
-                target_dict[motor_name] = clamped_pos
+                    limits = self.servo_limits[servo_id]
+                    clamped_pos = max(limits["min"], min(limits["max"], target_pos))
 
-            # 2. Gọi sync_write 1 lần cho toàn bộ dictionary
-
-            if target_dict:
-                with self.serial_lock:
                     try:
                         logger.debug(
-                            f"Sending sync_write to {list(target_dict.keys())}, "
+                            f"Sending to {motor_name} (ID {servo_id}): pos={clamped_pos}, "
                             f"speed={self.servo_speed}, accel={self.servo_accel}"
                         )
-                        self.robot.write_leg_positions_sync(
-                            positions=target_dict,
+
+                        # KHONG khoa serial_lock o day: vong lap ngoai da giu roi,
+                        # threading.Lock khong reentrant -> khoa lai se treo
+                        self.robot.write_pos_ex(
+                            motor_name=motor_name,
+                            position=clamped_pos,
                             speed=self.servo_speed,
                             acceleration=self.servo_accel,
+                            normalize=False,
                         )
-                        success_count = len(target_dict)
+                        success_count += 1
+
                     except Exception as e:
-                        logger.error(f"Failed sync_write for LEFT leg: {e}")
-                        fail_count += len(target_dict)
-            elif fail_count == 0:  # Trường hợp mảng truyền vào rỗng
-                fail_count = 6
+                        logger.error(f"Failed to set {motor_name} (ID {servo_id}): {e}")
+                        fail_count += 1
 
             self.target_positions = positions.copy()
 
@@ -717,20 +708,12 @@ def main():
     """Start the LEFT leg MCU server."""
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Bimo LEFT Leg MCU Control Server (6 Servos 4-9)"
-    )
+    parser = argparse.ArgumentParser(description="Bimo LEFT Leg MCU Control Server (6 Servos 4-9)")
     parser.add_argument("--port", type=int, default=5556, help="ZeroMQ port")
-    parser.add_argument(
-        "--serial-port", type=str, default="/dev/ttyACM0", help="Servo serial port"
-    )
+    parser.add_argument("--serial-port", type=str, default="/dev/ttyACM0", help="Servo serial port")
     parser.add_argument("--speed", type=int, default=3400, help="Default servo speed")
-    parser.add_argument(
-        "--acceleration", type=int, default=254, help="Default servo acceleration"
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable debug logging"
-    )  # ✅ Thêm
+    parser.add_argument("--acceleration", type=int, default=254, help="Default servo acceleration")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")  # ✅ Thêm
 
     args = parser.parse_args()
 

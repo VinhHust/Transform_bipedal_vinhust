@@ -62,13 +62,12 @@ class BipedalRobot:
             motors={
                 # base
                 "base_right_wheel": Motor(1, "sts3215", MotorNormMode.RANGE_M100_100),
-                "base_docking": Motor(2, "sts3215", norm_mode_body),
                 "base_left_wheel": Motor(3, "sts3215", MotorNormMode.RANGE_M100_100),
                 # leg
-                "bubright_joint": Motor(4, "sts3095", norm_mode_body),
-                "hipright_joint": Motor(5, "sts3095", norm_mode_body),
+                "bubright_joint": Motor(4, "sts3215", norm_mode_body),
+                "hipright_joint": Motor(5, "sts3215", norm_mode_body),
                 "twistright_joint": Motor(6, "sts3215", norm_mode_body),
-                "kneeright_joint": Motor(7, "sts3095", norm_mode_body),
+                "kneeright_joint": Motor(7, "sts3215", norm_mode_body),
                 "footright_joint": Motor(8, "sts3215", norm_mode_body),
                 "gripperright_joint": Motor(9, "sts3215", norm_mode_body),
             },

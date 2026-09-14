@@ -10,62 +10,92 @@ import sys
 from pathlib import Path
 import qwiic_icm20948
 import math
-from ahrs.filters import Madgwick
+import imufusion
 import numpy as np
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from bipedal_robot import BipedalRobot, BipedalConfig
+from bipedal_robot.bipedal import BipedalRobot, BipedalConfig
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - [MCU_SERVER_RIGHT] - %(message)s",
+    force=True,
 )
 logger = logging.getLogger(__name__)
 
 # # ==============================
 # # Load calibration
 # # ==============================
-with open(
-    "/home/mobile1/Transform_bipedal/bipedal_nam/src/leg_server/calibfull.json", "r"
-) as f:
-    calib = json.load(f)
+CALIB_DIR = Path("/home/mobile1/Transform_bipedal/bipedal_nam/Calib/READ")
+GYRO_CALIB_PATH = CALIB_DIR / "vinhgyrocalib.json"
+ACCEL_CALIB_PATH = CALIB_DIR / "vinh_accel_calib_ellipsoid.json"
+
+with open(ACCEL_CALIB_PATH, "r") as f:
+    accel_calib = json.load(f)
+
+with open(GYRO_CALIB_PATH, "r") as f:
+    gyro_calib = json.load(f)
 
 # calib từ accel
-accel_SM = np.array(calib["accel"]["SM"])
-accel_bias = np.array(calib["accel"]["bias"])
+accel_SM = np.array(accel_calib["accel"]["SM"])
+accel_bias = np.array(accel_calib["accel"]["bias"])
 
 # calib từ gyro
-gx_bias = calib["gyro"]["gx_bias"]
-gy_bias = calib["gyro"]["gy_bias"]
-gz_bias = calib["gyro"]["gz_bias"]
-GYRO_SENSITIVITY = calib["gyro"]["gyro_sensitivity"]
+gx_bias = gyro_calib["gx_bias"]
+gy_bias = gyro_calib["gy_bias"]
+gz_bias = gyro_calib["gz_bias"]
+GYRO_SENSITIVITY = gyro_calib["gyro_sensitivity"]
 
-ACCEL_ALPHA = 0.15
-GYRO_ALPHA = 0.15
+logger.info(f"Calib loaded: accel={ACCEL_CALIB_PATH.name}, gyro={GYRO_CALIB_PATH.name}")
 
-filtered_ax, filtered_ay, filtered_az = 0.0, 0.0, 0.0
-filtered_gx, filtered_gy, filtered_gz = 0.0, 0.0, 0.0
-
-# THÔNG SỐ CHO BỘ LỌC EMA
-ACCEL_ALPHA = 0.15
-GYRO_ALPHA = 0.15
-
-filtered_ax, filtered_ay, filtered_az = 0.0, 0.0, 0.0
-filtered_gx, filtered_gy, filtered_gz = 0.0, 0.0, 0.0
 
 # Initialize IMU
 IMU = qwiic_icm20948.QwiicIcm20948()
 if not IMU.connected:
     logger.error("IMU not found! Exiting...")
-    exit()
+    # sys.exit(1) chu KHONG exit(): exit() thoat voi ma 0 = "thanh cong", systemd
+    # va script bao boc se tuong server tat binh thuong va khong restart.
+    sys.exit(1)
 
 IMU.begin()
-logger.info("ICM-20948 IMU initialized (calibrated, output in m/s²)")
-madgwick = Madgwick(frequency=50, beta=0.1)
-madgwick.q0 = np.array([1.0, 0.0, 0.0, 0.0])  # Initialize with identity quaternion
+IMU.setFullScaleRangeGyro(qwiic_icm20948.dps500)  # Khớp FSR ±500 dps lúc calib
+IMU.setFullScaleRangeAccel(qwiic_icm20948.gpm4)  # Khớp FSR ±4g lúc calib
+
+# DLPF cho accel và gyro
+IMU.setDLPFcfgAccel(qwiic_icm20948.acc_d23bw9_n34bw4)
+IMU.setDLPFcfgGyro(qwiic_icm20948.gyr_d23bw9_n35bw9)
+IMU.enableDlpfAccel(True)
+IMU.enableDlpfGyro(True)
+logger.info("ICM-20948 IMU initialized (FSR: ±500dps, ±4g, output in m/s²)")
+
+# khởi tạo cho thư viện imufusion
+RATE = 50.0  # Tần số mong muốn (Hz)
+G = 9.80665
+
+# 1. Khởi tạo AHRS
+ahrs_settings = imufusion.AhrsSettings(
+    RATE,  # sample_rate (50 Hz)
+    imufusion.CONVENTION_NWU,  # Hệ trục chuẩn Z-hướng-lên
+    0.5,  # gain
+    500.0,  # gyroscope_range (±500 dps)
+    10.0,  # acceleration_rejection (độ - tự lọc xung giật khi bước chân)
+    0.0,  # magnetic_rejection (không dùng từ kế)
+    5.0,  # rejection_timeout (giây)
+)
+ahrs = imufusion.Ahrs()
+ahrs.set_settings(ahrs_settings)
+
+# khởi tạo AHRS học trôi cho gyroscope
+bias_settings = imufusion.BiasSettings(RATE, 3.0, 3.0)
+bias = imufusion.Bias()
+bias.set_settings(bias_settings)
+
+# bắt đầu bằng giá trị đầu đã calib cho gyro
+GB = np.array([gx_bias, gy_bias, gz_bias])
+bias.set_offset(GB / GYRO_SENSITIVITY)
 
 
 class MCUServer:
@@ -104,12 +134,12 @@ class MCUServer:
 
         # SỬA LẠI THEO CÁI ĐÃ CALIB TRONG APP FD
         self.servo_limits = {
-            4: {"min": 77, "max": 2230},
-            5: {"min": 1880, "max": 2360},
-            6: {"min": 1120, "max": 3100},
-            7: {"min": 860, "max": 3200},
-            8: {"min": 1331, "max": 2497},
-            9: {"min": 1780, "max": 2680},
+            4: {"min": 1950, "max": 3100},
+            5: {"min": 1700, "max": 2420},
+            6: {"min": 1030, "max": 3060},
+            7: {"min": 1045, "max": 3100},
+            8: {"min": 1385, "max": 2680},
+            9: {"min": 1873, "max": 2641},
         }
 
         # ✅ SỬA: Current positions CHỈ 6 servos (motor 4-9)
@@ -122,6 +152,7 @@ class MCUServer:
         # ✅ SỬA: State data CHỈ 6 servos (motor 4-9)
         self.state_data = {
             "imu": [0.0, 0.0, 0.0, 0.0],  # Quaternion [w, x, y, z]
+            "gyro_rad": [0.0, 0.0, 0.0],  # gyro da loc, rad/s - tra ve cho client
             "imu_t_sample": 0.0,  # ✅ THÊM: thời điểm lấy mẫu IMU (đóng dấu tại nguồn)
             "distance": [0, 0, 0, 0],  # Distance sensors
             "servo_pos": [0] * 6,  # 6 leg servos
@@ -132,9 +163,15 @@ class MCUServer:
             "servo_temp": [0] * 6,
         }
 
+        # Moc thoi gian mau IMU truoc do, dung de tinh dt cho imufusion.
+        self.t_prev_imu = None
+
         # ZeroMQ context and socket
         self.context = zmq.Context()
-        self.socket = None
+        self.socket_rep = None
+        self.socket_pull = None
+        self.poller = None
+        self._shutdown_done = False
 
         # Update loop control
         self.control_rate = 50  # Hz (20ms per update like micro_bimo.ino)
@@ -269,76 +306,67 @@ class MCUServer:
         except Exception as e:
             logger.error(f"Error in update_servo_feedback: {e}")
 
-    def update_imu_data(self) -> None:
-        """Update IMU data with calibration and store in state_data."""
-        try:
-            global filtered_ax, filtered_ay, filtered_az, filtered_gx, filtered_gy, filtered_gz
-            # logger.debug("🔵 update_imu_data() called")
-            if IMU.dataReady():
-                # logger.debug("🟢 IMU.dataReady() = True")
-                IMU.getAgmt()
-                t_sample = time.time()  # ✅ THÊM: đóng dấu ngay sát lúc lấy mẫu vật lý
+    def update_imu_data(self) -> bool:
+        """Update IMU data with calibration and store in state_data.
 
-                # Read raw data
-                ax_raw = IMU.axRaw
-                ay_raw = IMU.ayRaw
-                az_raw = IMU.azRaw
+        Tra ve True neu vua xu ly xong mot mau moi, False neu chip chua co
+        du lieu san (de imu_loop biet nen cho ngan roi thu lai, thay vi ngu
+        tron mot chu ky 20ms).
+        """
+        t0 = time.monotonic()
+        ready = IMU.dataReady()
+        t1 = time.monotonic()
 
-                gx_raw = IMU.gxRaw
-                gy_raw = IMU.gyRaw
-                gz_raw = IMU.gzRaw
-
-                #  Calibrate and convert accelerometer (LSB → m/s²)
-                # đưa giá trị raw vào mảng numpy
-                raw_accel = np.array([ax_raw, ay_raw, az_raw])
-                calib_accel = (
-                    accel_SM @ raw_accel - accel_bias
-                )  # giá trị calib = raw - offset
-
-                ax = calib_accel[0]
-                ay = calib_accel[1]
-                az = calib_accel[2]
-
-                # ✅ Calibrate and convert gyroscope (LSB → °/s → rad/s)
-                gx_deg = (gx_raw - gx_bias) / GYRO_SENSITIVITY
-                gy_deg = (gy_raw - gy_bias) / GYRO_SENSITIVITY
-                gz_deg = (gz_raw - gz_bias) / GYRO_SENSITIVITY
-
-                gx = gx_deg * math.pi / 180
-                gy = gy_deg * math.pi / 180
-                gz = gz_deg * math.pi / 180
-
-                # ✅ Apply low-pass filter for smooth data
-                filtered_ax = ACCEL_ALPHA * ax + (1 - ACCEL_ALPHA) * filtered_ax
-                filtered_ay = ACCEL_ALPHA * ay + (1 - ACCEL_ALPHA) * filtered_ay
-                filtered_az = ACCEL_ALPHA * az + (1 - ACCEL_ALPHA) * filtered_az
-
-                filtered_gx = GYRO_ALPHA * gx + (1 - GYRO_ALPHA) * filtered_gx
-                filtered_gy = GYRO_ALPHA * gy + (1 - GYRO_ALPHA) * filtered_gy
-                filtered_gz = GYRO_ALPHA * gz + (1 - GYRO_ALPHA) * filtered_gz
-
-                # ✅ Update Madgwick filter with filtered data
-                q_new = madgwick.updateIMU(
-                    q=madgwick.q0,
-                    gyr=np.array([filtered_gx, filtered_gy, filtered_gz]),
-                    acc=np.array([filtered_ax, filtered_ay, filtered_az]),
+        if not ready:
+            self._nready = getattr(self, "_nready", 0) + 1
+            if self._nready % 100 == 0:
+                logger.warning(
+                    f"[IMU_DBG] dataReady False {self._nready} lan lien tiep, moi lan {1000*(t1-t0):.1f}ms"
                 )
-                madgwick.q0 = q_new
+            return False
 
-                # ✅ Store quaternion in state_data
-                with self.imu_lock:
-                    self.state_data["imu"] = list(q_new)  # [w, x, y, z]
-                    self.state_data["imu_t_sample"] = t_sample  # ✅ THÊM: lưu dấu thời gian
+        self._nready = 0
+        IMU.getAgmt()
+        t2 = time.monotonic()
 
-                # logger.debug(
-                #     f"IMU: ax={ax:+.4f}, ay={ay:+.4f}, az={az:+.4f} | "
-                #     f"gx={gx_deg:+.2f}°/s, gy={gy_deg:+.2f}°/s, gz={gz_deg:+.2f}°/s | "
-                #     f"q=[{q_new[0]:+.4f}, {q_new[1]:+.4f}, {q_new[2]:+.4f}, {q_new[3]:+.4f}]"
-                # )
-            # else:
-            # logger.debug("🔴 IMU.dataReady() = False")
-        except Exception as e:
-            logger.error(f"Error updating IMU data: {e}")
+        if t1 - t0 > 0.005 or t2 - t1 > 0.005:
+            logger.warning(
+                f"[IMU_DBG] I2C cham: dataReady={1000*(t1-t0):.0f}ms getAgmt={1000*(t2-t1):.0f}ms"
+            )
+
+        t_mono = time.monotonic()  # do dt - dong ho chi tien
+        t_sample = time.time()  # dau thoi gian gui ve laptop - gio treo tuong
+
+        # Read raw data
+        araw = np.array([IMU.axRaw, IMU.ayRaw, IMU.azRaw], dtype=float)
+        graw = np.array([IMU.gxRaw, IMU.gyRaw, IMU.gzRaw], dtype=float)
+
+        # chuyển đơn vị của accel thành g và gyro thành độ/s
+        acc = (accel_SM @ araw - accel_bias) / G  # Đơn vị: g
+        gyr_deg = bias.update(graw / GYRO_SENSITIVITY)  # Đơn vị: °/s
+
+        # tính dt và kẹp lại giá trị của dt trong khoảng tránh giá trị dt lệch quá làm hỏng filter
+        if self.t_prev_imu is None:
+            dt = 1.0 / RATE
+        else:
+            dt = t_mono - self.t_prev_imu
+        self.t_prev_imu = t_mono
+
+        dt_clamped = min(max(dt, 0.5 / RATE), 2.0 / RATE)
+        ahrs.set_sample_period(dt_clamped)
+
+        # chạy fusion filter ahrs
+        ahrs.update_no_magnetometer(gyr_deg, acc)
+        q_new = np.asarray(ahrs.get_quaternion(), dtype=float)  # [w, x, y, z]
+
+        #  Store quaternion in state_data
+        with self.imu_lock:
+            self.state_data["imu"] = q_new.tolist()
+            self.state_data["imu_t_sample"] = t_sample
+            # Lưu gyro chuyển sang rad/s để trả về cho client
+            self.state_data["gyro_rad"] = (gyr_deg * (math.pi / 180.0)).tolist()
+
+        return True
 
     def update_distance_sensors(self) -> None:
         """Update distance sensor data (placeholder)."""
@@ -378,7 +406,7 @@ class MCUServer:
 
     def apply_new_positions(self, positions: List[int]) -> bool:
         """
-        ✅ SỬA: Ghi vị trí với write_lock (ngắn hơn).
+         SỬA: Ghi vị trí với write_lock (ngắn hơn).
         Ưu tiên ghi (command) hơn đọc (feedback).
         """
         try:
@@ -390,50 +418,56 @@ class MCUServer:
                 logger.error(f"Expected 6 positions, got {len(positions)}")
                 return False
 
+            # 1. Dựng dictionary chứa đích đến của tất cả các khớp
+            # THAY GỬI TUẦN TỰ TỚI TỪNG KHỚP BẰNG GỬI 1 PHÁT CHO TẤT CẢ CÁC KHỚP
+            target_dict = {}
             success_count = 0
             fail_count = 0
 
-            # serial_lock (khong phai write_lock): giu cong serial suot ca 6 lenh ghi
-            # de luong doc feedback khong chen vao giua
-            with self.serial_lock:
-                for servo_id in range(4, 10):
-                    motor_name = self.servo_map[servo_id]
-                    pos_idx = servo_id - 4
-                    target_pos = positions[pos_idx]
+            for servo_id in range(4, 10):
+                motor_name = self.servo_map[servo_id]
+                pos_idx = servo_id - 4
+                target_pos = positions[pos_idx]
 
-                    if motor_name not in self.robot.bus.motors:
-                        logger.warning(f"Motor {motor_name} (ID {servo_id}) not found")
-                        fail_count += 1
-                        continue
+                if motor_name not in self.robot.bus.motors:
+                    logger.warning(f"Motor {motor_name} (ID {servo_id}) not found")
+                    fail_count += 1
+                    continue
 
-                    limits = self.servo_limits[servo_id]
-                    clamped_pos = max(limits["min"], min(limits["max"], target_pos))
+                limits = self.servo_limits[servo_id]
+                clamped_pos = max(limits["min"], min(limits["max"], target_pos))
+                target_dict[motor_name] = clamped_pos
 
+            # 2. Gọi sync_write 1 lần cho toàn bộ dictionary
+            if target_dict:
+                with self.serial_lock:
                     try:
                         logger.debug(
-                            f"Sending to {motor_name} (ID {servo_id}): pos={clamped_pos}, "
+                            f"Sending sync_write to {list(target_dict.keys())}, "
                             f"speed={self.servo_speed}, accel={self.servo_accel}"
                         )
-
-                        self.robot.write_pos_ex(
-                            motor_name=motor_name,
-                            position=clamped_pos,
+                        self.robot.write_leg_positions_sync(
+                            positions=target_dict,
                             speed=self.servo_speed,
                             acceleration=self.servo_accel,
-                            normalize=False,
                         )
-                        success_count += 1
-
+                        success_count = len(target_dict)
                     except Exception as e:
-                        logger.error(f"Failed to set {motor_name} (ID {servo_id}): {e}")
-                        fail_count += 1
+                        logger.error(f"Failed sync_write for RIGHT leg: {e}")
+                        fail_count += len(target_dict)
+            elif fail_count == 0:  # Trường hợp mảng truyền vào rỗng
+                fail_count = 6
 
             self.target_positions = positions.copy()
 
             result = success_count > 0 and fail_count == 0
-            logger.info(
-                f"Applied positions (motor 4-9): {success_count} success, {fail_count} failed"
+            # debug chu khong info: client gui move ~25-33 lan/giay, o muc info
+            # se do tung ay dong log moi giay vao journald - ton I/O tren Pi.
+            logger.debug(
+                f"Applied positions (RIGHT leg 4-9): {success_count} success, {fail_count} failed"
             )
+            if fail_count:
+                logger.warning(f"Move: {success_count} success, {fail_count} FAILED")
             return result
 
         except Exception as e:
@@ -481,14 +515,20 @@ class MCUServer:
                 # ✅ THÊM: Trả về gyro data
                 with self.imu_lock:
                     imu_quat = self.state_data["imu"].copy()
-                    imu_t = self.state_data.get("imu_t_sample", 0.0)  # ✅ THÊM
+                    imu_gyro = self.state_data["gyro_rad"].copy()
+                    imu_t = self.state_data["imu_t_sample"]  # ✅ THÊM
+
+                # Copy duoi read_lock: servo_loop ghi vao list nay o thread khac,
+                # tra ve thang chinh list se gui di mot ban nua cu nua moi.
+                with self.read_lock:
+                    servo_pos = self.state_data["servo_pos"].copy()
 
                 return {
                     "status": "success",
                     "quat": imu_quat,
-                    "gyro": [filtered_gx, filtered_gy, filtered_gz],  # ✅ THÊM
+                    "gyro": imu_gyro,  # rad/s, da tru bias boi imufusion.Bias
                     "t_sample": imu_t,  # ✅ THÊM: gửi dấu thời gian về laptop
-                    "servo_pos": self.state_data["servo_pos"],
+                    "servo_pos": servo_pos,
                     "servo_speed": self.state_data["servo_speed"],
                     "servo_load": self.state_data["servo_load"],
                     "servo_voltage": self.state_data["servo_voltage"],
@@ -505,7 +545,10 @@ class MCUServer:
                 }
 
             elif cmd_type == "stop":
-                stop_pos = self.target_positions.copy()
+
+                with self.read_lock:
+                    stop_pos = self.state_data["servo_pos"].copy()
+
                 success = self.apply_new_positions(stop_pos)
                 return {
                     "status": "success" if success else "error",
@@ -532,18 +575,34 @@ class MCUServer:
             logger.error(f"Error processing command: {e}")
             return {"status": "error", "message": str(e)}
 
-    # ✅ THÊM: IMU loop riêng
     def imu_loop(self) -> None:
         """✅ IMU thread - 50Hz independent loop"""
         logger.info("IMU loop started (50Hz - independent)")
 
+        # Ngu TOI MOC dich thay vi ngu them 20ms: thoi gian doc I2C + fusion
+        # cong don vao moi vong, neu ngu them thi chu ky that > 20ms. Khi chu
+        # ky vuot 2/RATE = 40ms thi dt bi ket o tren -> tich phan gyro thieu
+        # thoi gian -> goc troi. Xem docs/fusion.md.
+        t_next = time.monotonic()
+
         while self.running:
             try:
-                self.update_imu_data()
-                time.sleep(0.02)  # 50Hz = 20ms
+                if not self.update_imu_data():
+                    # chip chua san sang - cho ngan roi thu lai, dung bo ca chu ky
+                    time.sleep(0.001)
+                    continue
+
+                t_next += 1.0 / RATE
+                sleep_s = t_next - time.monotonic()
+                if sleep_s > 0:
+                    time.sleep(sleep_s)
+                else:
+                    # da tre hon nhip - bo qua phan no va bat lai tu bay gio
+                    t_next = time.monotonic()
             except Exception as e:
                 logger.error(f"Error in IMU loop: {e}")
                 time.sleep(0.01)
+                t_next = time.monotonic()
 
         logger.info("IMU loop stopped")
 
@@ -651,6 +710,12 @@ class MCUServer:
 
     def shutdown(self) -> None:
         """Shutdown the server"""
+        # run() va main() deu co finally goi shutdown() -> chay 2 lan. Lan 2 se
+        # disconnect robot lan nua va in lai log ket thuc.
+        if getattr(self, "_shutdown_done", False):
+            return
+        self._shutdown_done = True
+
         self.running = False
 
         # Wait for threads

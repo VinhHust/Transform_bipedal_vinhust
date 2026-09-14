@@ -15,8 +15,9 @@ EXCLUDE_ARGS=(
     --exclude 'logs/'
     --exclude 'imu_logs/'
     --exclude '*.log'
-
+    --exclude 'venv/'
     --exclude '*.jsonl'
+    --exclude '.rsync_backup/'
 )
 
 usage() {
@@ -42,8 +43,11 @@ do_sync() {
 
     if [ "$direction" = "push" ]; then
         echo "🚀 Đẩy code: LOCAL → Pi ($PI_HOST)"
-        rsync $flags "${EXCLUDE_ARGS[@]}" "$LOCAL_DIR" "$PI_USER@$PI_HOST:$PI_DIR"
+        rsync $flags --existing \
+              --backup --backup-dir="$PI_DIR/.rsync_backup/$(date +%Y%m%d_%H%M%S)" \
+              "${EXCLUDE_ARGS[@]}" "$LOCAL_DIR" "$PI_USER@$PI_HOST:$PI_DIR"
     elif [ "$direction" = "pull" ]; then
+
         echo "📥 Kéo code: Pi ($PI_HOST) → LOCAL"
         rsync $flags "${EXCLUDE_ARGS[@]}" "$PI_USER@$PI_HOST:$PI_DIR" "$LOCAL_DIR"
     fi

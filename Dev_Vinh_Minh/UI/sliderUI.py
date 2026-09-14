@@ -5,7 +5,7 @@ Giao diện thanh trượt điều khiển 12 động cơ (2 chân) qua ZeroMQ.
 - Chạy trên LAPTOP, KHÔNG cần tắt leg server -> IMU vẫn chạy bình thường.
 - Lệnh move gửi qua cổng PUSH/PULL (port + 100) nên không chặn giao diện.
 - Vị trí thật đọc định kỳ qua REQ/REP (port) để đối chiếu.
-- servo_limits đọc thẳng từ leg_server_debug/{left,right}.py bằng AST,
+- servo_limits đọc thẳng từ leg_server/leg_server_{left,right}.py bằng AST,
   nên sửa limit trong file server rồi lưu là giao diện tự cập nhật.
 """
 
@@ -26,10 +26,10 @@ import zmq
 # ==============================
 def _find_src_dir(start: Path) -> Path:
     """
-    Đi ngược lên các thư mục cha để tìm bipedal_nam/src/leg_server_debug.
+    Đi ngược lên các thư mục cha để tìm bipedal_nam/src/leg_server.
     Nhờ vậy file này đặt ở đâu trong repo cũng chạy được.
     """
-    rel = Path("bipedal_nam") / "src" / "leg_server_debug"
+    rel = Path("bipedal_nam") / "src" / "leg_server"
     for base in [start, *start.parents]:
         if (base / rel).is_dir():
             return base / rel
@@ -39,8 +39,8 @@ def _find_src_dir(start: Path) -> Path:
 SRC_DIR = _find_src_dir(Path(__file__).resolve().parent)
 
 LEGS = [
-    {"side": "LEFT", "host": "mobile2.local", "port": 5556, "src": "left.py"},
-    {"side": "RIGHT", "host": "mobile1.local", "port": 5555, "src": "right.py"},
+    {"side": "LEFT", "host": "mobile2.local", "port": 5556, "src": "leg_server_left.py"},
+    {"side": "RIGHT", "host": "mobile1.local", "port": 5555, "src": "leg_server_right.py"},
 ]
 
 JOINTS = {4: "bub", 5: "hip", 6: "twist", 7: "knee", 8: "foot", 9: "gripper"}
@@ -821,7 +821,7 @@ class App(tk.Tk):
 
         ttk.Label(
             self,
-            text="Thanh trượt tính bằng TICK, giới hạn đọc từ leg_server_debug/*.py. "
+            text="Thanh trượt tính bằng TICK, giới hạn đọc từ leg_server/leg_server_*.py."
             "Phải bấm 'BẬT gửi lệnh' thì động cơ mới chạy.",
             foreground="#555",
             padding=(8, 0),
