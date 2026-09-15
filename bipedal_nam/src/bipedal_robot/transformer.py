@@ -6,6 +6,8 @@ Simplified version based on walking_gait_dual.py logic
 - Architecture: Distributed (2 leg servers via ZeroMQ)
 """
 
+# API NÀY DÙNG ĐỂ ĐIỀU KHIỂN ĐỘNG CƠ QUA BẰNG 2 SERVER
+
 import sys
 import time
 import math
@@ -89,8 +91,8 @@ class TransformerAPI:
 
         # Home positions (from server config - motors 4-9)
         # Indices: 0=motor4, 1=hip(5), 2=motor6, 3=knee(7), 4=foot(8), 5=motor9
-        self.home_pos_left = [2048, 2048, 2048, 2048, 2048, 2048]  # decrease
-        self.home_pos_right = [2048, 2048, 2048, 2048, 2048, 2048]  # increase
+        self.home_pos_left = [2023, 2044, 2075, 2020, 2117, 2048]  # decrease
+        self.home_pos_right = [1989, 2054, 2052, 2036, 2133, 2048]  # increase
 
         # Initial pose (from walking_gait_dual.py)
         self.initial_hip_deg = 25
@@ -99,15 +101,15 @@ class TransformerAPI:
 
         # Servo configuration (like walking_gait_dual.py)
         self.servo_config_left = {
-            5: {"name": "hip", "home_ticks": 2048, "min_ticks": 1676, "max_ticks": 2396},
-            7: {"name": "knee", "home_ticks": 2048, "min_ticks": 996, "max_ticks": 3051},
-            8: {"name": "foot", "home_ticks": 2048, "min_ticks": 1416, "max_ticks": 2711},
+            5: {"name": "hip", "home_ticks": 2044, "min_ticks": 1676, "max_ticks": 2396},
+            7: {"name": "knee", "home_ticks": 2020, "min_ticks": 996, "max_ticks": 3051},
+            8: {"name": "foot", "home_ticks": 2117, "min_ticks": 1416, "max_ticks": 2711},
         }
 
         self.servo_config_right = {
-            5: {"name": "hip", "home_ticks": 2048, "min_ticks": 1700, "max_ticks": 2420},
-            7: {"name": "knee", "home_ticks": 2048, "min_ticks": 1045, "max_ticks": 3100},
-            8: {"name": "foot", "home_ticks": 2048, "min_ticks": 1385, "max_ticks": 2680},
+            5: {"name": "hip", "home_ticks": 2054, "min_ticks": 1700, "max_ticks": 2420},
+            7: {"name": "knee", "home_ticks": 2036, "min_ticks": 1045, "max_ticks": 3100},
+            8: {"name": "foot", "home_ticks": 2133, "min_ticks": 1385, "max_ticks": 2680},
         }
 
         # ✅ THÊM: IMU cache + thread

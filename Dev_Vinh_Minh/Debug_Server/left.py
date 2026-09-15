@@ -409,7 +409,70 @@ class MCUServerLeft:
                 logger.error(f"Expected 6 positions, got {len(positions)}")
                 return False
 
-            # 1. Dựng dictionary chứa đích đến của tất cả các khớp
+            # CHÚ Ý: PHẦN NÀY LÀ PHẦN ĐỔI WRITE SANG SYNC WRITE
+            # DÙNG CÁI NÀO THÌ COMMENT OUT CÁI CÒN LẠI
+
+            # BẮT ĐẦU PHẦN KIẾN TRÚC CŨ WRITE TUẦN TỰ
+
+            #     success_count = 0
+            #     fail_count = 0
+
+            #     # serial_lock (khong phai write_lock): giu cong serial suot ca 6 lenh ghi
+            #     # de luong doc feedback khong chen vao giua
+            #     with self.serial_lock:
+            #         for servo_id in range(4, 10):
+            #             motor_name = self.servo_map[servo_id]
+            #             pos_idx = servo_id - 4
+            #             target_pos = positions[pos_idx]
+
+            #             if motor_name not in self.robot.bus.motors:
+            #                 logger.warning(f"Motor {motor_name} (ID {servo_id}) not found")
+            #                 fail_count += 1
+            #                 continue
+
+            #             limits = self.servo_limits[servo_id]
+            #             clamped_pos = max(limits["min"], min(limits["max"], target_pos))
+
+            #             try:
+            #                 logger.debug(
+            #                     f"Sending to {motor_name} (ID {servo_id}): pos={clamped_pos}, "
+            #                     f"speed={self.servo_speed}, accel={self.servo_accel}"
+            #                 )
+
+            #                 # KHONG khoa serial_lock o day: vong lap ngoai da giu roi,
+            #                 # threading.Lock khong reentrant -> khoa lai se treo
+            #                 self.robot.write_pos_ex(
+            #                     motor_name=motor_name,
+            #                     position=clamped_pos,
+            #                     speed=self.servo_speed,
+            #                     acceleration=self.servo_accel,
+            #                     normalize=False,
+            #                 )
+            #                 success_count += 1
+
+            #             except Exception as e:
+            #                 logger.error(f"Failed to set {motor_name} (ID {servo_id}): {e}")
+            #                 fail_count += 1
+
+            #     self.target_positions = positions.copy()
+
+            #     result = success_count > 0 and fail_count == 0
+            #     # debug chu khong info: client gui move ~25-33 lan/giay, o muc info
+            #     # se do tung ay dong log moi giay vao journald - ton I/O tren Pi.
+            #     logger.debug(
+            #         f"Applied positions (LEFT leg 4-9): {success_count} success, {fail_count} failed"
+            #     )
+            #     if fail_count:
+            #         logger.warning(f"Move: {success_count} success, {fail_count} FAILED")
+            #     return result
+
+            # except Exception as e:
+            #     logger.error(f"Error in apply_new_positions: {e}")
+            #     return False
+            # KẾT THÚC PHẦN KIẾN TRÚC CŨ WRITE TUẦN TỰ
+
+            # BẮT ĐẦU PHẦN ĐỔI SANG KIẾN TRÚC SYNC WRITE
+
             # THAY GỬI TUẦN TỰ TỚI TỪNG KHỚP BẰNG GỬI 1 PHÁT CHO TẤT CẢ CÁC KHỚP
             target_dict = {}
             success_count = 0
@@ -465,6 +528,8 @@ class MCUServerLeft:
         except Exception as e:
             logger.error(f"Error in apply_new_positions: {e}")
             return False
+
+        # KẾT THÚC PHẦN ĐỔI SANG KIẾN TRÚC SYNC WRITE
 
     def process_command(self, command: Dict) -> Dict:
         """Process incoming command"""
