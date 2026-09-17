@@ -4,6 +4,9 @@
 #   python3 collect_imu_fusion.py                          # chi xem live
 #   python3 collect_imu_fusion.py --out fuse.csv           # ghi log de xem lai
 #   python3 collect_imu_fusion.py --out fuse.csv -d 60     # chay 60 giay roi tu dung
+#   python3 collect_imu_fusion.py --pubsub --out fuse2.csv -d 60
+#       # dung imu_pubsub.py (PUB/SUB, khong chan) thay cho imu.py (REQ/REP).
+#       # Server phai la leg_server_pubsub/leg_Server_*.py.
 #
 # Ctrl+C de dung. Trong luc chay, nhan ENTER de danh dau moc (cot "marker"),
 # giong run_imufusion_live.py - tien de danh dau "bat dau nghieng", "dat lai".
@@ -35,26 +38,34 @@ from pathlib import Path
 import numpy as np
 
 REPO = Path(__file__).resolve().parent.parent
-IMU_PY = REPO / "bipedal_nam" / "src" / "bipedal_robot" / "sensors" / "imu.py"
+SENSORS_DIR = REPO / "bipedal_nam" / "src" / "bipedal_robot" / "sensors"
+IMU_PY = {
+    "req": SENSORS_DIR / "imu.py",         # REQ/REP - hoi roi cho (ban cu)
+    "sub": SENSORS_DIR / "imu_pubsub.py",  # PUB/SUB - khong chan (ban moi)
+}
+
+# "--pubsub" phai duoc xet TRUOC khi nap class, nen doc som tu argv.
+TRANSPORT = "sub" if "--pubsub" in sys.argv else "req"
 
 
-def _load_imufusion_class():
-    """Nap dung file imu.py, KHONG di qua package bipedal_robot.
+def _load_imufusion_class(transport: str):
+    """Nap dung file imu*.py, KHONG di qua package bipedal_robot.
 
     Ly do: bipedal_robot/__init__.py keo theo lerobot (thu vien dieu khien
     dong co, chi co tren Pi). May tinh chay client khong can lerobot chi de
     doc IMU, nen nap thang file theo duong dan de script chay duoc o moi may.
     Class lay ra van la CUNG mot class ma policy_run.py dung.
     """
-    if not IMU_PY.exists():
-        sys.exit(f"Khong thay {IMU_PY}")
-    spec = importlib.util.spec_from_file_location("_imu_fusion_mod", IMU_PY)
+    path = IMU_PY[transport]
+    if not path.exists():
+        sys.exit(f"Khong thay {path}")
+    spec = importlib.util.spec_from_file_location("_imu_fusion_mod", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod.IMUFusion
 
 
-IMUFusion = _load_imufusion_class()
+IMUFusion = _load_imufusion_class(TRANSPORT)
 
 RAD2DEG = 180.0 / math.pi
 
@@ -124,6 +135,8 @@ def main():
     ap.add_argument("-d", "--duration", type=float, default=0.0,
                     help="chay bao nhieu giay roi tu dung (0 = chay den khi Ctrl+C)")
     ap.add_argument("--out", help="ghi log CSV ra file nay")
+    ap.add_argument("--pubsub", action="store_true",
+                    help="dung imu_pubsub.py (PUB/SUB, khong chan). Server phai la leg_server_pubsub/")
     args = ap.parse_args()
 
     print("=" * 78)
@@ -132,6 +145,7 @@ def main():
     print(f"  LEFT  : {args.left_host}:{args.left_port}")
     print(f"  RIGHT : {args.right_host}:{args.right_port}")
     print(f"  Rate  : {args.rate} Hz")
+    print(f"  Duong : {'PUB/SUB - imu_pubsub.py (khong chan)' if TRANSPORT == 'sub' else 'REQ/REP - imu.py (hoi-cho)'}")
 
     try:
         fusion = IMUFusion(
@@ -157,6 +171,8 @@ def main():
             "Lq0", "Lq1", "Lq2", "Lq3", "Rq0", "Rq1", "Rq2", "Rq3",
             "Fq0", "Fq1", "Fq2", "Fq3",
             "Lgx", "Lgy", "Lgz", "Rgx", "Rgy", "Rgz",
+            # tuoi/cu tung ben + seq server danh (seq chi co o PUB/SUB)
+            "L_stale", "R_stale", "L_seq", "R_seq",
         ])
         print(f"  Log   : {args.out}   (nhan ENTER de danh dau moc)")
 
@@ -171,6 +187,8 @@ def main():
     dts, disagrees = [], []
     gyro_mags = []
     roll_v, pitch_v, yaw_v = [], [], []
+    n_stale_L = n_stale_R = 0
+    streak_L = streak_R = max_streak_L = max_streak_R = 0
 
     t_start = time.monotonic()
     t_prev = None
@@ -200,6 +218,17 @@ def main():
                 gyro = data["fused_gyro"]
                 lq, rq, fq = data["left_quat"], data["right_quat"], data["fused_quat"]
                 lg, rg = data["left_gyro"], data["right_gyro"]
+                l_stale = bool(data.get("left_stale", False))
+                r_stale = bool(data.get("right_stale", False))
+                l_seq = data.get("left_seq")
+                r_seq = data.get("right_seq")
+
+                n_stale_L += l_stale
+                n_stale_R += r_stale
+                streak_L = streak_L + 1 if l_stale else 0
+                streak_R = streak_R + 1 if r_stale else 0
+                max_streak_L = max(max_streak_L, streak_L)
+                max_streak_R = max(max_streak_R, streak_R)
 
                 dis = quat_angle_deg(lq, rq)
                 lr, lp, ly = fusion.quat_to_euler(lq)
@@ -225,14 +254,18 @@ def main():
                         *[f"{x:.6f}" for x in lq], *[f"{x:.6f}" for x in rq],
                         *[f"{x:.6f}" for x in fq],
                         *[f"{x:.5f}" for x in lg], *[f"{x:.5f}" for x in rg],
+                        int(l_stale), int(r_stale),
+                        "" if l_seq is None else l_seq, "" if r_seq is None else r_seq,
                     ])
 
                 if t_now - t_print >= 1.0 / args.hz_print:
                     t_print = t_now
                     canh_bao = "  <== LECH LON" if dis > 15.0 else ""
+                    tuoi = ("" if not (l_stale or r_stale)
+                            else "  cu:" + ("L" if l_stale else "") + ("R" if r_stale else ""))
                     print(f"  {roll * RAD2DEG:+8.2f} {pitch * RAD2DEG:+8.2f} "
                           f"{yaw * RAD2DEG:+8.2f} | {gyro[0]:+7.3f} {gyro[1]:+7.3f} "
-                          f"{gyro[2]:+7.3f} | {dis:8.2f}d | {dt * 1000:5.1f}ms{canh_bao}")
+                          f"{gyro[2]:+7.3f} | {dis:8.2f}d | {dt * 1000:5.1f}ms{tuoi}{canh_bao}")
 
             # ngu TOI MOC dich, khong phai ngu them - xem bai hoc trong imu_loop
             # cua leg_server_left.py: moi vong con ton thoi gian 2 lan REQ/REP,
@@ -250,6 +283,8 @@ def main():
         if fout is not None:
             fout.close()
             print(f"  Da ghi: {args.out}")
+        # PUB/SUB moi co stats() (nhan/roi theo seq); ban REQ/REP thi None.
+        sub_stats = fusion.stats() if hasattr(fusion, "stats") else None
         fusion.close()
 
     # ======================================================================
@@ -281,6 +316,26 @@ def main():
     verdict("Do lech 2 con IMU", float(dis.mean()) < 5.0,
             f"trung binh {dis.mean():.2f}d, lon nhat {dis.max():.2f}d  (can < 5d)")
 
+    # Mau cu: ben goi hoi ma server chua co mau moi. Server 50Hz, ta hoi 20Hz
+    # nen binh thuong phai < 5%; chuoi dai (>3) = mang nghen hoac server treo.
+    pct_L = 100.0 * n_stale_L / n_ok
+    pct_R = 100.0 * n_stale_R / n_ok
+    verdict("Mau cu TRAI", pct_L < 5.0 and max_streak_L <= 3,
+            f"{pct_L:.1f}%, chuoi dai nhat {max_streak_L}  (can < 5%, chuoi <= 3)")
+    verdict("Mau cu PHAI", pct_R < 5.0 and max_streak_R <= 3,
+            f"{pct_R:.1f}%, chuoi dai nhat {max_streak_R}  (can < 5%, chuoi <= 3)")
+
+    if sub_stats is not None:
+        # Roi = server phat ma ta khong thay (seq nhay coc). Voi CONFLATE, doc
+        # 20Hz trong khi server phat 50Hz thi ~60% mau bi de len - do la CO Y,
+        # khong phai loi. Chi lo khi ty le roi vuot xa (1 - 20/50) = 60%.
+        for ben, st in (("TRAI", sub_stats["left"]), ("PHAI", sub_stats["right"])):
+            tot = st["received"] + st["dropped"]
+            pct = 100.0 * st["dropped"] / tot if tot else 0.0
+            verdict(f"Mau roi {ben} (seq)", st["received"] > 0 and pct < 75.0,
+                    f"nhan {st['received']}, khong thay {st['dropped']} ({pct:.0f}%)  "
+                    f"(doc {args.rate:.0f}Hz / phat 50Hz -> ky vong ~{100 * (1 - args.rate / 50):.0f}%)")
+
     print(f"\n  Bien do goc fused:  roll [{min(roll_v):+7.2f} .. {max(roll_v):+7.2f}]d"
           f"   pitch [{min(pitch_v):+7.2f} .. {max(pitch_v):+7.2f}]d")
     print(f"  Yaw troi:           {yaw_v[0]:+.2f}d -> {yaw_v[-1]:+.2f}d "
@@ -294,9 +349,12 @@ def main():
         print("     nghia la mot trong hai: (a) transform_quat_to_baselink sai goc")
         print("     gan, (b) mot con chua calib. Xem ghi chu ben duoi ve chan phai.")
     if rate_that < args.rate * 0.9:
-        print("   - Tan so thap la do moi vong phai cho 2 lan REQ/REP noi tiep nhau.")
-        print("     Neu policy can 20Hz on dinh, phai doc 2 chan SONG SONG (2 thread)")
-        print("     thay vi noi tiep nhu IMUFusion.get_fused_imu hien tai.")
+        if TRANSPORT == "req":
+            print("   - Tan so thap la do moi vong phai cho 2 lan REQ/REP noi tiep nhau.")
+            print("     Chay server leg_server_pubsub/ va them --pubsub de doc khong chan.")
+        else:
+            print("   - Dang PUB/SUB ma van cham -> khong phai do mang. Xem CPU laptop,")
+            print("     hoac vong lap script bi gi do chan (in qua nhieu?).")
     if gm.mean() >= 0.02:
         print("   - |gyro| lon khi dung yen: bias gyro chua tru het, hoac robot rung.")
     print("=" * 78)

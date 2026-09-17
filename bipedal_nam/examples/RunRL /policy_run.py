@@ -11,7 +11,14 @@ import math
     + hỏi imu về orient, gyro
     + scale orient, gyro, action history thành 44D obs
     + đưa 44 số vào mạng neural ra 6 số action 
-    + 6 số -> angle -> tick -> servo 
+    + 6 số -> angle -> tick -> servo
+
+TODO (IMU PUB/SUB - chưa bật ở file này):
+- Đường IMU hiện tại là REQ/REP (sensors/imu.py): hỏi rồi chờ, 2 chân nối tiếp
+  ~90ms/vòng -> không đạt 20Hz. Đã có đường mới PUB/SUB (sensors/imu_pubsub.py,
+  không chặn) + server leg_server_pubsub/leg_Server_*.py.
+- Khi đã test xong bằng examples_client/collect_imu_fusion.py --pubsub thì bật
+  ở đây bằng: TransformerAPI(..., imu_pubsub=True). Không cần sửa gì khác.
 """
 
 # File này nằm ở examples/RunRL/ (sâu thêm 1 cấp so với examples/ cũ),

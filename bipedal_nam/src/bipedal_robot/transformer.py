@@ -41,6 +41,7 @@ class TransformerAPI:
         left_port: int = 5556,
         right_host: str = "mobile1.local",
         right_port: int = 5555,
+        imu_pubsub: bool = False,
     ):
         """
         Initialize Transformer API
@@ -50,11 +51,15 @@ class TransformerAPI:
             left_port: Port of left leg server
             right_host: Hostname/IP of right leg server
             right_port: Port of right leg server
+            imu_pubsub: False = doc IMU qua REQ/REP (sensors/imu.py, hoi-cho).
+                True = doc qua PUB/SUB (sensors/imu_pubsub.py, khong chan).
+                True chi dung khi server la leg_server_pubsub/leg_Server_*.py.
         """
         self.left_host = left_host
         self.left_port = left_port
         self.right_host = right_host
         self.right_port = right_port
+        self.imu_pubsub = imu_pubsub
 
         # THÊM: Initialize socket dictionaries
         self.req_context = None  # ← REQ/REP context
@@ -199,7 +204,15 @@ class TransformerAPI:
 
             # Initialize IMU Fusion
             logger.info("\nInitializing IMU Fusion...")
-            self.imu_fusion = IMUFusion(
+            if self.imu_pubsub:
+                # Import tai day de imu_pubsub.py chi duoc nap khi bat co,
+                # giu duong cu (imu.py) hoan toan khong bi anh huong.
+                from bipedal_robot.sensors.imu_pubsub import IMUFusion as _Fusion
+                logger.info("IMU transport: PUB/SUB (imu_pubsub.py, khong chan)")
+            else:
+                _Fusion = IMUFusion
+                logger.info("IMU transport: REQ/REP (imu.py)")
+            self.imu_fusion = _Fusion(
                 left_host=self.left_host,
                 left_port=self.left_port,
                 right_host=self.right_host,
