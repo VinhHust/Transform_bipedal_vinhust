@@ -21,7 +21,7 @@ def deg_to_ticks(degrees: float, motor_id: int, motor_info: dict) -> int:
     min_norm = info["min_norm"]
     max_norm = info["max_norm"]
     
-    # ✅ CORRECT conversion: map degree range to tick range
+    # CORRECT conversion: map degree range to tick range
     if min_steps <= max_steps:
         # Normal case: linear mapping
         degree_range = max_norm - min_norm

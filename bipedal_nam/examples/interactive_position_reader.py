@@ -42,14 +42,14 @@ def deg_to_ticks(degrees: float, motor_id: int, motor_info: dict, current_ticks:
     min_norm = info["min_norm"]
     max_norm = info["max_norm"]
     
-    # ✅ Clamp degree input to valid range
+    # Clamp degree input to valid range
     clamped_deg = max(min_norm, min(max_norm, degrees))
     
     # Convert degrees to ticks
     ticks_offset = (clamped_deg / 360.0) * 4096
     target_ticks = int(home_steps + ticks_offset)
     
-    # ✅ Handle wrap-around with SHORTEST PATH
+    # Handle wrap-around with SHORTEST PATH
     if min_steps <= max_steps:
         # Normal case: simple clamp to [min_steps, max_steps]
         target_ticks = max(min_steps, min(max_steps, target_ticks))
@@ -88,7 +88,7 @@ def ticks_to_deg(ticks: int, motor_id: int, motor_info: dict) -> float:
     min_norm = info["min_norm"]
     max_norm = info["max_norm"]
     
-    # ✅ Calculate offset from home, handling wrap-around
+    # Calculate offset from home, handling wrap-around
     if min_steps > max_steps:
         # Wrap-around case (motor 7, 8)
         # Valid range: [min_steps, 4095] or [0, max_steps]
@@ -113,16 +113,16 @@ def ticks_to_deg(ticks: int, motor_id: int, motor_info: dict) -> float:
         # Normal case (motor 4, 5, 6)
         ticks_offset = ticks - home_steps
     
-    # ✅ Convert offset to degrees
+    # Convert offset to degrees
     degrees = (ticks_offset / 4096.0) * 360.0
     
-    # ✅ Normalize to [-180, 180]
+    # Normalize to [-180, 180]
     while degrees > 180:
         degrees -= 360
     while degrees < -180:
         degrees += 360
     
-    # ✅ Clamp to motor's valid degree range
+    # Clamp to motor's valid degree range
     # This ensures we never report degrees outside the physical limits
     degrees = max(min_norm, min(max_norm, degrees))
     
@@ -181,7 +181,7 @@ def move_to_position_blocking(robot, motor_name: str, target_ticks: int, speed: 
     # Wait for motor to settle
     time.sleep(timeout)
     
-    # ✅ STOP motor - try multiple methods
+    # STOP motor - try multiple methods
     try:
         # Method 1: Set Goal_Velocity to 0
         robot.bus.write("Goal_Velocity", motor_name, 0, num_retry=2)
@@ -357,7 +357,7 @@ def interactive_reader():
                             speed=speed,
                             accel=accel,
                             timeout=5.0,
-                            tolerance=100  # ✅ Increased from 20 to 100 ticks
+                            tolerance=100  # Increased from 20 to 100 ticks
                         )
                         
                         if success:
@@ -399,7 +399,7 @@ def interactive_reader():
                             speed=100,
                             accel=5,
                             timeout=5.0,
-                            tolerance=100  # ✅ Increased from 20 to 100 ticks
+                            tolerance=100  # Increased from 20 to 100 ticks
                         )
                         
                         if success:

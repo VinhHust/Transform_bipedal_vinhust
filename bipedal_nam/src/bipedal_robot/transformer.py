@@ -11,7 +11,7 @@ Simplified version based on walking_gait_dual.py logic
 import sys
 import time
 import math
-import zmq  # ⭐ THÊM: Import ZeroMQ
+import zmq  # THÊM: Import ZeroMQ
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import logging
@@ -56,7 +56,7 @@ class TransformerAPI:
         self.right_host = right_host
         self.right_port = right_port
 
-        # ⭐ THÊM: Initialize socket dictionaries
+        # THÊM: Initialize socket dictionaries
         self.req_context = None  # ← REQ/REP context
         self.push_context = None  # ← PUSH/PULL context
         self.sockets_req = {}  # ← {leg: socket}
@@ -112,7 +112,7 @@ class TransformerAPI:
             8: {"name": "foot", "home_ticks": 2133, "min_ticks": 1385, "max_ticks": 2680},
         }
 
-        # ✅ THÊM: IMU cache + thread
+        # THÊM: IMU cache + thread
         self.imu_cache = {"orient": (0.0, 0.0, 0.0), "gyro": [0.0, 0.0, 0.0], "timestamp": 0}
         self.imu_lock = threading.Lock()
         self.imu_thread = None
@@ -136,14 +136,14 @@ class TransformerAPI:
                 if imu_data:
                     valid_count += 1
 
-                    # ✅ LƯU vào cache atomically
+                    # LƯU vào cache atomically
                     with self.imu_lock:
                         roll, pitch, yaw = imu_data["fused_euler"]
                         self.imu_cache["orient"] = (roll, pitch, yaw)
                         self.imu_cache["gyro"] = imu_data["fused_gyro"]
                         self.imu_cache["timestamp"] = time.time()
 
-                    # ✅ Log every 50 samples (1 second)
+                    # Log every 50 samples (1 second)
                     if valid_count % 50 == 0:
                         logger.info(
                             f"✓ IMU: {valid_count} valid samples | "
@@ -210,7 +210,7 @@ class TransformerAPI:
             # # INITIAL WARMUP (5 giây) - Cho servers sẵn sàng
             # logger.info("\n Waiting for servers to warm up IMU (5.0s)...")
 
-            # # ✅ FIX: Dùng print() thay vì logger.info() để có end="\r"
+            # # FIX: Dùng print() thay vì logger.info() để có end="\r"
             # for i in range(5, 0, -1):
             #     print(f"   {i}s remaining...", end="\r")
             #     time.sleep(1)
@@ -234,26 +234,26 @@ class TransformerAPI:
             #         consecutive_failures = 0
 
             #         if valid_count % 50 == 0:
-            #             logger.info(f"  ✓ IMU valid: {valid_count} samples")
+            # logger.info(f" IMU valid: {valid_count} samples")
             #     else:
             #         consecutive_failures += 1
 
             #         if consecutive_failures > max_consecutive_failures:
-            #             logger.warning(f"  ⚠️  {consecutive_failures} consecutive failures - reconnecting...")
+            # logger.warning(f" {consecutive_failures} consecutive failures - reconnecting...")
             #             self.imu_fusion.left.connect()
             #             self.imu_fusion.right.connect()
             #             consecutive_failures = 0
-            #             logger.info(f"  ✓ Reconnected, continuing warmup...")
+            # logger.info(f" Reconnected, continuing warmup...")
 
             #         if valid_count == 0 and imu_samples % 50 == 0:
             #             logger.debug(f"  ⏳ Waiting for IMU... ({imu_samples*20}ms)")
 
-            # # ✅ MOVE THIS OUTSIDE THE WHILE LOOP (but still inside try)
+            # # MOVE THIS OUTSIDE THE WHILE LOOP (but still inside try)
             # if valid_count == 0:
-            #     logger.error("❌ IMU data not received after warmup!")
+            # logger.error(" IMU data not received after warmup!")
             #     return False
 
-            # logger.info(f"✅ Warmup complete: {imu_samples} samples, {valid_count} valid")
+            # logger.info(f" Warmup complete: {imu_samples} samples, {valid_count} valid")
 
             # Move both legs to HOME position first
             logger.info("\n🏠 Moving both legs to HOME position...")
@@ -286,7 +286,7 @@ class TransformerAPI:
             logger.info("✅ TRANSFORMER API READY")
             logger.info("=" * 80 + "\n")
 
-            # ✅ THÊM: Start IMU background thread AFTER warmup
+            # THÊM: Start IMU background thread AFTER warmup
             # Chỉ start khi IMUFusion đã có - tránh thread spam lỗi NoneType
             # nếu sau này ai đó lại comment phần khởi tạo IMU ở trên.
             if self.imu_fusion is not None:
@@ -374,7 +374,7 @@ class TransformerAPI:
                 response = socket.recv_json()
 
                 if response.get("status") == "success":
-                    # logger.info(f"✓ {leg} feedback received")
+                    # logger.info(f" {leg} feedback received")
                     return response
                 else:
                     # logger.warning(f"{leg}: Feedback rejected")
@@ -487,7 +487,7 @@ class TransformerAPI:
             socket = self.sockets_req[leg]
             socket.send_json({"type": "config", "speed": speed})
 
-            # ✅ FIX: BỎ timeout parameter - đã set ở init với RCVTIMEO
+            # FIX: BỎ timeout parameter - đã set ở init với RCVTIMEO
             response = socket.recv_json()
 
             if response.get("status") == "success":
@@ -529,7 +529,7 @@ class TransformerAPI:
             pos_right[3] = self.degree_to_ticks("right", 7, right_knee)
             pos_right[4] = self.degree_to_ticks("right", 8, right_foot)
 
-            # ⭐ Use PUSH (async, non-blocking) for real-time control
+            # Use PUSH (async, non-blocking) for real-time control
             self._send_control_command("left", pos_left)
             self._send_control_command("right", pos_right)
 
@@ -642,7 +642,7 @@ class TransformerAPI:
         Real-time updates đã handle bởi background thread
         """
         try:
-            # ✅ LẤY từ cache (non-blocking)
+            # LẤY từ cache (non-blocking)
             with self.imu_lock:
                 orient = self.imu_cache["orient"]
                 gyro = self.imu_cache["gyro"]
@@ -653,7 +653,7 @@ class TransformerAPI:
             if age > 0.2 and timestamp > 0:  # Allow first 0 timestamp
                 logger.warning(f"⚠️  IMU cache stale ({age*1000:.0f}ms old)")
 
-            # ✅ UPDATE state_data từ cache
+            # UPDATE state_data từ cache
             self.state_data["orient"] = orient
             self.state_data["gyro"] = gyro
 
@@ -674,7 +674,7 @@ class TransformerAPI:
         """Shutdown API"""
         logger.info("Shutting down TransformerAPI...")
 
-        # ✅ THÊM: Stop IMU thread
+        # THÊM: Stop IMU thread
         self.imu_running = False
         if self.imu_thread:
             self.imu_thread.join(timeout=2.0)

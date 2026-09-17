@@ -157,7 +157,7 @@ class MCUServerLeft:
         self.state_data = {
             "imu": [0.0, 0.0, 0.0, 0.0],
             "gyro_rad": [0.0, 0.0, 0.0],  # gyro da loc, rad/s - tra ve cho client
-            "imu_t_sample": 0.0,  # ✅ THÊM: thời điểm lấy mẫu IMU (đóng dấu tại nguồn)
+            "imu_t_sample": 0.0,  # THÊM: thời điểm lấy mẫu IMU (đóng dấu tại nguồn)
             "distance": [0, 0, 0, 0],
             "servo_pos": [0] * 6,
             "servo_speed": [0] * 6,
@@ -472,11 +472,11 @@ class MCUServerLeft:
                 }
 
             elif cmd_type == "feedback":
-                # ✅ THÊM: Trả về gyro data
+                # THÊM: Trả về gyro data
                 with self.imu_lock:
                     imu_quat = self.state_data["imu"].copy()
                     imu_gyro = self.state_data["gyro_rad"].copy()
-                    imu_t = self.state_data["imu_t_sample"]  # ✅ THÊM
+                    imu_t = self.state_data["imu_t_sample"]  # THÊM
 
                 # Copy duoi read_lock: servo_loop ghi vao list nay o thread khac,
                 # tra ve thang chinh list se gui di mot ban nua cu nua moi.
@@ -487,7 +487,7 @@ class MCUServerLeft:
                     "status": "success",
                     "quat": imu_quat,
                     "gyro": imu_gyro,  # rad/s, da tru bias boi imufusion.Bias
-                    "t_sample": imu_t,  # ✅ THÊM: gửi dấu thời gian về laptop
+                    "t_sample": imu_t,  # THÊM: gửi dấu thời gian về laptop
                     "servo_pos": servo_pos,
                     "servo_speed": self.state_data["servo_speed"],
                     "servo_load": self.state_data["servo_load"],
@@ -596,17 +596,17 @@ class MCUServerLeft:
         """Main server loop - Monitor cả REQ/REP và PUSH/PULL"""
         self.running = True
 
-        # ✅ START IMU thread (50Hz)
+        # START IMU thread (50Hz)
         self.imu_thread = threading.Thread(target=self.imu_loop, daemon=True)
         self.imu_thread.start()
         logger.info("✓ IMU loop thread started (50Hz)")
 
-        # ✅ START Servo thread (25Hz)
+        # START Servo thread (25Hz)
         self.servo_thread = threading.Thread(target=self.servo_loop, daemon=True)
         self.servo_thread.start()
         logger.info("✓ Servo loop thread started (25Hz)")
 
-        # ✅ WARMUP IMU
+        # WARMUP IMU
         logger.info("⏳ Warming up IMU (filter convergence)...")
         warmup_time = 5.0
         warmup_start = time.time()
@@ -630,10 +630,10 @@ class MCUServerLeft:
 
         try:
             while self.running:
-                # ⭐ THÊM: Use poller để monitor cả 2 sockets
+                # THÊM: Use poller để monitor cả 2 sockets
                 socks = dict(self.poller.poll(timeout=10))
 
-                # ✅ Process REQ/REP (feedback queries)
+                # Process REQ/REP (feedback queries)
                 if self.socket_rep in socks:
                     try:
                         message = self.socket_rep.recv_json()
@@ -645,12 +645,12 @@ class MCUServerLeft:
                     except Exception as e:
                         logger.error(f"REQ/REP error: {e}")
 
-                # ⭐ THÊM: Process PUSH/PULL (async commands)
+                # THÊM: Process PUSH/PULL (async commands)
                 if self.socket_pull in socks:
                     try:
                         command = self.socket_pull.recv_json()
                         logger.debug(f"PUSH: {command}")
-                        # ✅ SỬA: Chỉ process move commands (không cần response)
+                        # SỬA: Chỉ process move commands (không cần response)
                         if command.get("type") == "move":
                             positions = command.get("positions", [])
                             self.apply_new_positions(positions)
@@ -689,7 +689,7 @@ class MCUServerLeft:
         if self.update_thread:
             self.update_thread.join(timeout=2.0)
 
-        # ⭐ THÊM: Close cả 2 sockets
+        # THÊM: Close cả 2 sockets
         if self.socket_rep:
             self.socket_rep.close()
         if self.socket_pull:
@@ -714,11 +714,11 @@ def main():
     parser.add_argument("--serial-port", type=str, default="/dev/ttyACM0", help="Servo serial port")
     parser.add_argument("--speed", type=int, default=3400, help="Default servo speed")
     parser.add_argument("--acceleration", type=int, default=254, help="Default servo acceleration")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging")  # ✅ Thêm
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")  # Thêm
 
     args = parser.parse_args()
 
-    # ✅ Set log level based on --debug flag
+    # Set log level based on --debug flag
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
     else:

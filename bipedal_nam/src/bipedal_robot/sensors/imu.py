@@ -121,7 +121,7 @@ class IMUController:
 
                 except zmq.Again:
                     logger.debug(f"{self.side}: Timeout waiting for IMU, using cache")
-                    self.socket.close()  # ✅ FIX: Close broken socket
+                    self.socket.close()  # FIX: Close broken socket
                     self.socket = self.context.socket(zmq.REQ)  # Create new socket
                     self.socket.setsockopt(zmq.RCVTIMEO, 2000)
                     self.socket.setsockopt(zmq.LINGER, 0)

@@ -126,11 +126,11 @@ def process_observations(robot: TransformerAPI, orient_history, gyro_history, ac
     """
     observations = []
 
-    # ✅ Add orient history (2 values per frame: roll, pitch)
+    # Add orient history (2 values per frame: roll, pitch)
     for orient in orient_history:
         observations.extend(orient)
 
-    # ✅ Add gyro history (3 values per frame: gx, gy, gz) - NEWLY ADDED
+    # Add gyro history (3 values per frame: gx, gy, gz) - NEWLY ADDED
     for gyro in gyro_history:
         observations.extend(gyro)
 

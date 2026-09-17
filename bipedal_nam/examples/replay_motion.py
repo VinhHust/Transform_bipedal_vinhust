@@ -27,7 +27,7 @@ def load_trajectory(json_file: str) -> dict:
 
 
 def replay_first_steps(
-    robot: TransformerAPI, motion_data: dict, num_steps: int = 300, speed_factor: float = 0.85
+    robot: TransformerAPI, motion_data: dict, num_steps: int = 600, speed_factor: float = 1.2
 ):
     """
     ✅ Replay FIRST N steps từ motion sequence with timestamp sync
@@ -62,7 +62,7 @@ def replay_first_steps(
         for idx in range(num_steps):
             step_data = steps[idx]
 
-            # ✅ SYNC TIMESTAMP
+            # SYNC TIMESTAMP
             t_sim = step_data["time_s"]  # Simulation time
             t_elapsed_sim = t_sim - t_sim_start  # Elapsed time in simulation
             t_elapsed_real = time.time() - t_start  # Elapsed time in real-world
@@ -75,7 +75,7 @@ def replay_first_steps(
             if t_delta > 0.001:  # >1ms ahead
                 time.sleep(t_delta)
             elif t_delta < -0.05:  # >50ms behind
-                print(f"  ⚠️  Step {idx}: Behind by {abs(t_delta)*1000:.0f}ms (skipping...)")
+                print(f"    Step {idx}: Behind by {abs(t_delta)*1000:.0f}ms (skipping...)")
 
             # Extract joint angles từ JSON
             angles = step_data["angles_deg"]
@@ -92,7 +92,7 @@ def replay_first_steps(
             success = robot.set_joint_angles(hip_l, knee_l, ankle_l, hip_r, knee_r, ankle_r)
 
             if not success:
-                print(f"  ❌ Step {idx}: Failed to apply joint angles")
+                print(f"   Step {idx}: Failed to apply joint angles")
                 break
 
             # Log every 10 steps
@@ -107,13 +107,13 @@ def replay_first_steps(
                     f"Angles: [{hip_l:+6.1f}°, {knee_l:+6.1f}°, {ankle_l:+6.1f}°]"
                 )
 
-        print(f"\n✅ Replay complete ({num_steps} steps)!")
+        print(f"\n Replay complete ({num_steps} steps)!")
 
     except KeyboardInterrupt:
-        print(f"\n👋 Interrupted by user at step {idx}")
+        print(f"\n Interrupted by user at step {idx}")
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f" Error: {e}")
         import traceback
 
         traceback.print_exc()
@@ -135,17 +135,17 @@ def main():
     )
 
     if not robot.initialize():
-        print("❌ Failed to initialize robot")
+        print(" Failed to initialize robot")
         return False
 
-    print("✅ Robot initialized and in INITIAL POSE\n")
+    print(" Robot initialized and in INITIAL POSE\n")
 
     # ========================================================================
     # LOAD MOTION SEQUENCE
     # ========================================================================
     print("[2/3] Loading motion sequence...")
     motion_file = (
-        Path(__file__).parent.parent / "trajectory_exports" / "trajectory_20260318_124358.json"
+        Path(__file__).parent.parent / "trajectory_exports" / "trajectory_20260319_115232.json"
     )
 
     if not motion_file.exists():
@@ -158,7 +158,7 @@ def main():
     # REPLAY FIRST 200 STEPS
     # ========================================================================
     print("[3/3] Replaying first 200 steps...")
-    replay_first_steps(robot, motion_data, num_steps=300, speed_factor=1.0)
+    replay_first_steps(robot, motion_data, num_steps=600, speed_factor=1.0)
 
     # ========================================================================
     # RETURN TO HOME

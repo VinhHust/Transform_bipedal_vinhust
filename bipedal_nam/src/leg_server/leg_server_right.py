@@ -118,7 +118,7 @@ class MCUServer:
         self.config = BipedalConfig(port=serial_port, baudrate=1_000_000)
         self.robot = None
 
-        # ✅ SỬA: Servo mapping CHỈ motor 4-9 (leg motors)
+        # SỬA: Servo mapping CHỈ motor 4-9 (leg motors)
         self.servo_map = {
             4: "bubright_joint",  # leg_bub (sts3095)
             5: "hipright_joint",  # leg_hip (sts3095)
@@ -142,18 +142,18 @@ class MCUServer:
             9: {"min": 1873, "max": 2641},
         }
 
-        # ✅ SỬA: Current positions CHỈ 6 servos (motor 4-9)
+        # SỬA: Current positions CHỈ 6 servos (motor 4-9)
         self.current_positions = [0] * 6  # 6 slots
         self.target_positions = [0] * 6  # 6 slots
 
         # Servo feedback history
         self.feedback_history = deque(maxlen=100)
 
-        # ✅ SỬA: State data CHỈ 6 servos (motor 4-9)
+        # SỬA: State data CHỈ 6 servos (motor 4-9)
         self.state_data = {
             "imu": [0.0, 0.0, 0.0, 0.0],  # Quaternion [w, x, y, z]
             "gyro_rad": [0.0, 0.0, 0.0],  # gyro da loc, rad/s - tra ve cho client
-            "imu_t_sample": 0.0,  # ✅ THÊM: thời điểm lấy mẫu IMU (đóng dấu tại nguồn)
+            "imu_t_sample": 0.0,  # THÊM: thời điểm lấy mẫu IMU (đóng dấu tại nguồn)
             "distance": [0, 0, 0, 0],  # Distance sensors
             "servo_pos": [0] * 6,  # 6 leg servos
             "servo_speed": [0] * 6,
@@ -177,13 +177,13 @@ class MCUServer:
         self.control_rate = 50  # Hz (20ms per update like micro_bimo.ino)
         self.last_update_time = time.time()
         self.update_thread = None
-        self.imu_thread = None  # ✅ THÊM
-        self.servo_thread = None  # ✅ THÊM
+        self.imu_thread = None  # THÊM
+        self.servo_thread = None  # THÊM
 
-        # ✅ SỬA: Tách thành 3 lock - 1 cho read, 1 cho write, 1 cho IMU
+        # SỬA: Tách thành 3 lock - 1 cho read, 1 cho write, 1 cho IMU
         self.read_lock = threading.Lock()  # Chỉ cho servo feedback
         self.write_lock = threading.Lock()  # Chỉ cho servo command
-        self.imu_lock = threading.Lock()  # ✅ THÊM: Cho IMU data
+        self.imu_lock = threading.Lock()  # THÊM: Cho IMU data
         self.serial_lock = threading.Lock()
 
         logger.info(f"MCUServer initialized (6 leg servos 4-9) on port {zmq_port}")
@@ -191,19 +191,19 @@ class MCUServer:
     def init_zmq(self) -> bool:
         """Initialize ZeroMQ sockets - BOTH REQ/REP and PUSH/PULL"""
         try:
-            # ✅ REQ/REP Socket (feedback queries)
+            # REQ/REP Socket (feedback queries)
             self.socket_rep = self.context.socket(zmq.REP)
             self.socket_rep.setsockopt(zmq.RCVTIMEO, 100)
             self.socket_rep.bind(f"tcp://*:{self.zmq_port}")  # 5555
             logger.info(f"✓ REQ/REP socket bound to port {self.zmq_port} (feedback)")
 
-            # ⭐ THÊM: PUSH Socket (async control commands)
+            # THÊM: PUSH Socket (async control commands)
             self.socket_pull = self.context.socket(zmq.PULL)
             self.socket_pull.setsockopt(zmq.RCVTIMEO, 100)
             self.socket_pull.bind(f"tcp://*:{self.zmq_port + 100}")  # 5655
             logger.info(f"✓ PUSH/PULL socket bound to port {self.zmq_port + 100} (async commands)")
 
-            # ⭐ THÊM: Poller để monitor cả 2 sockets
+            # THÊM: Poller để monitor cả 2 sockets
             self.poller = zmq.Poller()
             self.poller.register(self.socket_rep, zmq.POLLIN)
             self.poller.register(self.socket_pull, zmq.POLLIN)
@@ -223,7 +223,7 @@ class MCUServer:
             logger.info("✓ Robot connected and configured")
             logger.info(f"✓ Available motors: {list(self.robot.bus.motors.keys())}")
 
-            # ✅ THÊM: Initialize feedback immediately
+            # THÊM: Initialize feedback immediately
             logger.info("Initializing servo feedback (reading actual positions)...")
             time.sleep(0.5)  # Wait for motors to respond
             self.update_servo_feedback()
@@ -280,7 +280,7 @@ class MCUServer:
                 try:
                     idx = servo_id - 4
 
-                    # ⭐ CHỈ đọc position
+                    # CHỈ đọc position
                     # serial_lock: doc va ghi dung chung 1 cong serial,
                     # khong khoa chung se bi [TxRxResult] Port is in use!
                     with self.serial_lock:
@@ -565,11 +565,11 @@ class MCUServer:
                 }
 
             elif cmd_type == "feedback":
-                # ✅ THÊM: Trả về gyro data
+                # THÊM: Trả về gyro data
                 with self.imu_lock:
                     imu_quat = self.state_data["imu"].copy()
                     imu_gyro = self.state_data["gyro_rad"].copy()
-                    imu_t = self.state_data["imu_t_sample"]  # ✅ THÊM
+                    imu_t = self.state_data["imu_t_sample"]  # THÊM
 
                 # Copy duoi read_lock: servo_loop ghi vao list nay o thread khac,
                 # tra ve thang chinh list se gui di mot ban nua cu nua moi.
@@ -580,7 +580,7 @@ class MCUServer:
                     "status": "success",
                     "quat": imu_quat,
                     "gyro": imu_gyro,  # rad/s, da tru bias boi imufusion.Bias
-                    "t_sample": imu_t,  # ✅ THÊM: gửi dấu thời gian về laptop
+                    "t_sample": imu_t,  # THÊM: gửi dấu thời gian về laptop
                     "servo_pos": servo_pos,
                     "servo_speed": self.state_data["servo_speed"],
                     "servo_load": self.state_data["servo_load"],
@@ -659,7 +659,7 @@ class MCUServer:
 
         logger.info("IMU loop stopped")
 
-    # ✅ THÊM: Servo loop riêng
+    # THÊM: Servo loop riêng
     def servo_loop(self) -> None:
         """✅ Servo thread - 25Hz independent loop"""
         logger.info("Servo loop started (25Hz - independent)")
@@ -677,7 +677,7 @@ class MCUServer:
 
         logger.info("Servo loop stopped")
 
-    # ✅ THAY: update_loop() → chỉ deprecated placeholder
+    # THAY: update_loop() → chỉ deprecated placeholder
     def update_loop(self) -> None:
         """⚠️ KHÔNG DÙNG NỮA"""
         logger.info("⚠️  Main update loop (deprecated)")
@@ -685,22 +685,22 @@ class MCUServer:
             time.sleep(0.1)
         logger.info("Main update loop stopped")
 
-    # ✅ SỬA: run() để start 2 threads
+    # SỬA: run() để start 2 threads
     def run(self) -> None:
         """Main server loop - Monitor cả REQ/REP và PUSH/PULL"""
         self.running = True
 
-        # ✅ START IMU thread (50Hz)
+        # START IMU thread (50Hz)
         self.imu_thread = threading.Thread(target=self.imu_loop, daemon=True)
         self.imu_thread.start()
         logger.info("✓ IMU loop thread started (50Hz)")
 
-        # ✅ START Servo thread (25Hz)
+        # START Servo thread (25Hz)
         self.servo_thread = threading.Thread(target=self.servo_loop, daemon=True)
         self.servo_thread.start()
         logger.info("✓ Servo loop thread started (25Hz)")
 
-        # ✅ WARMUP IMU
+        # WARMUP IMU
         logger.info("⏳ Warming up IMU (filter convergence)...")
         warmup_time = 5.0
         warmup_start = time.time()
@@ -724,10 +724,10 @@ class MCUServer:
 
         try:
             while self.running:
-                # ⭐ THÊM: Use poller để monitor cả 2 sockets
+                # THÊM: Use poller để monitor cả 2 sockets
                 socks = dict(self.poller.poll(timeout=10))
 
-                # ✅ Process REQ/REP (feedback queries)
+                # Process REQ/REP (feedback queries)
                 if self.socket_rep in socks:
                     try:
                         message = self.socket_rep.recv_json()
@@ -739,12 +739,12 @@ class MCUServer:
                     except Exception as e:
                         logger.error(f"REQ/REP error: {e}")
 
-                # ⭐ THÊM: Process PUSH/PULL (async commands)
+                # THÊM: Process PUSH/PULL (async commands)
                 if self.socket_pull in socks:
                     try:
                         command = self.socket_pull.recv_json()
                         logger.debug(f"PUSH: {command}")
-                        # ✅ SỬA: Chỉ process move commands (không cần response)
+                        # SỬA: Chỉ process move commands (không cần response)
                         if command.get("type") == "move":
                             positions = command.get("positions", [])
                             self.apply_new_positions(positions)
@@ -783,7 +783,7 @@ class MCUServer:
         if self.update_thread:
             self.update_thread.join(timeout=2.0)
 
-        # ⭐ THÊM: Close cả 2 sockets
+        # THÊM: Close cả 2 sockets
         if self.socket_rep:
             self.socket_rep.close()
         if self.socket_pull:
@@ -828,7 +828,7 @@ def main():
         if not server.init_robot():
             return
 
-        # ✅ run() sẽ tự start 2 threads
+        # run() sẽ tự start 2 threads
         server.run()
 
     except Exception as e:
