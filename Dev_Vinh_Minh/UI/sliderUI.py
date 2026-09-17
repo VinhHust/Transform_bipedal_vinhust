@@ -375,6 +375,8 @@ class LegPanel(ttk.LabelFrame):
 
         self.limits = parse_servo_limits(SRC_DIR / cfg["src"])
         self.vars = {}
+        self.entry_vars = {}  # chuỗi đang hiện trong ô nhập, tách khỏi self.vars
+        self.entries = {}
         self.actual_lbl = {}
         self.enabled = tk.BooleanVar(value=False)
         self.blocked = False  # True khi limit trong file lệch với limit trên Pi
@@ -434,9 +436,31 @@ class LegPanel(ttk.LabelFrame):
             )
             scale.grid(row=row, column=1, padx=4)
 
-            ttk.Label(self, textvariable=var, width=6, anchor="e").grid(
-                row=row, column=2
+            # Ô nhập tick, dùng song song với thanh trượt: gõ số rồi Enter là chốt.
+            # KHÔNG gắn thẳng IntVar vào Entry, vì hai lý do:
+            #  - xoá trắng ô -> IntVar.get() ném TclError -> chết luôn vòng tick()
+            #  - lúc chưa BẬT gửi lệnh, feedback ghi đè var ~20 lần/giây -> xoá
+            #    mất chữ đang gõ dở.
+            evar = tk.StringVar(value=str(lo))
+            self.entry_vars[mid] = evar
+            entry = ttk.Entry(
+                self,
+                textvariable=evar,
+                width=6,
+                justify="right",
+                state="normal" if span >= 50 else "disabled",
             )
+            entry.grid(row=row, column=2, padx=(2, 4))
+            self.entries[mid] = entry
+
+            # Một trace bắt hết mọi chỗ gọi var.set() (slider, home, đồng bộ,
+            # feedback...) nên ô nhập luôn hiện đúng số, khỏi phải sửa từng nơi.
+            # m=mid: bắt buộc, không thì cả 6 lambda cùng trỏ vào mid cuối vòng lặp.
+            var.trace_add("write", lambda *_a, m=mid: self._mirror_entry(m))
+            entry.bind("<Return>", lambda _e, m=mid: self._commit_entry(m))
+            entry.bind("<FocusOut>", lambda _e, m=mid: self._commit_entry(m))
+            entry.bind("<Escape>", lambda _e, m=mid: self._mirror_entry(m, force=True))
+
             ttk.Label(self, text=f"[{lo}–{hi}]", width=12, foreground="#888").grid(
                 row=row, column=3
             )
@@ -473,6 +497,55 @@ class LegPanel(ttk.LabelFrame):
 
         self.status = ttk.Label(self, text="● chưa kết nối", foreground="#c00")
         self.status.grid(row=100, column=0, columnspan=5, sticky="w", pady=(6, 0))
+
+    # ---------- ô nhập tick ----------
+
+    def _mirror_entry(self, mid, force=False):
+        """
+        Chép giá trị slider vào ô nhập.
+
+        Bỏ qua khi con trỏ đang nằm trong chính ô đó - người dùng đang gõ dở,
+        ghi đè lúc này là xoá mất chữ của họ. force=True dùng sau khi đã chốt,
+        lúc đó phải ghi đè để hiện con số ĐÃ clamp.
+        """
+        entry = self.entries.get(mid)
+        if entry is None:
+            return
+        if not force and self.focus_get() is entry:
+            return
+        text = str(self.vars[mid].get())
+        if self.entry_vars[mid].get() != text:
+            self.entry_vars[mid].set(text)
+
+    def _commit_entry(self, mid):
+        """Chốt số trong ô nhập vào slider. Gõ bậy thì trả lại số cũ."""
+        raw = self.entry_vars[mid].get().strip()
+        try:
+            val = int(float(raw))
+        except ValueError:
+            self._mirror_entry(mid, force=True)
+            self.status.config(
+                text=f"● {mid} {JOINTS[mid]}: '{raw}' không phải số tick",
+                foreground="#c00",
+            )
+            return
+
+        lo, hi = self.limits[mid]
+        clamped = max(lo, min(hi, val))
+        self.vars[mid].set(clamped)
+        self._mirror_entry(mid, force=True)
+
+        if clamped != val:
+            self.status.config(
+                text=f"● {mid} {JOINTS[mid]}: {val} ngoài [{lo}–{hi}] → dùng {clamped}",
+                foreground="#a60",
+            )
+        elif not self.enabled.get():
+            # Chưa BẬT thì slider đang bám vị trí thật -> số vừa gõ bị ghi đè ngay.
+            self.status.config(
+                text="● chưa BẬT gửi lệnh — số vừa nhập sẽ bị vị trí thật ghi đè",
+                foreground="#a60",
+            )
 
     # ---------- hành động ----------
 

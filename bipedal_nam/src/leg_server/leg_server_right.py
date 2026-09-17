@@ -590,7 +590,7 @@ class MCUServer:
                 }
 
             elif cmd_type == "home":
-                home_pos = [1989, 2054, 2052, 2036, 2133, 2048]
+                home_pos = [1989, 2070, 2052, 2036, 2133, 2048]
                 success = self.apply_new_positions(home_pos)
                 return {
                     "status": "success" if success else "error",

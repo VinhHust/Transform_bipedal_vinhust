@@ -9,10 +9,10 @@
 > Tối ưu = **gọi ít hơn, gọi ngắn hơn, và khi rớt thì tay chân tự biết phải làm gì**.
 
 File liên quan:
-- [policy_run.py](../../bipedal_nam/examples/RunRL%20/policy_run.py) — vòng lặp policy trên laptop
-- [transformer.py](../../bipedal_nam/src/bipedal_robot/transformer.py) — API nói chuyện với 2 chân
-- [imu.py](../../bipedal_nam/src/bipedal_robot/sensors/imu.py) — gộp 2 IMU
-- [leg_server_left.py](../../bipedal_nam/src/leg_server/leg_server_left.py) / [leg_server_right.py](../../bipedal_nam/src/leg_server/leg_server_right.py) — chạy trên Pi
+- [policy_run.py](../examples/RunRL%20/policy_run.py) — vòng lặp policy trên laptop
+- [transformer.py](../src/bipedal_robot/transformer.py) — API nói chuyện với 2 chân
+- [imu.py](../src/bipedal_robot/sensors/imu.py) — gộp 2 IMU
+- [leg_server_left.py](../src/leg_server/leg_server_left.py) / [leg_server_right.py](../src/leg_server/leg_server_right.py) — chạy trên Pi
 
 Trạng thái: ⬜ chưa · 🔶 đang · ✅ xong
 
@@ -59,7 +59,7 @@ lặp để `sleep` cuối vòng không làm sai số?
 | # | Việc | Vì sao | TT |
 |---|---|---|---|
 | 1.1 | Bỏ 2 lệnh feedback servo khỏi vòng policy | Obs 44D không dùng `servo_pos`. 2 chuyến WiFi khứ hồi mỗi vòng cho thứ không ăn. Giữ lại chỉ để log 1 lần/giây | ⬜ |
-| 1.2 | Sửa bug speed = 500 | `_configure_servo_speed(leg, None)` `return True` mà không gửi gì ([transformer.py:479](../../bipedal_nam/src/bipedal_robot/transformer.py#L479)). Sau `initialize()` servo kẹt speed 500 suốt policy, default server là 3400 | ⬜ |
+| 1.2 | Sửa bug speed = 500 | `_configure_servo_speed(leg, None)` `return True` mà không gửi gì ([transformer.py:479](../src/bipedal_robot/transformer.py#L479)). Sau `initialize()` servo kẹt speed 500 suốt policy, default server là 3400 | ⬜ |
 | 1.3 | Hỏi 2 chân song song | Hiện `left.read_imu()` xong mới `right.read_imu()`. Gửi cả 2 trước rồi nhận cả 2 (`zmq.Poller` hoặc 2 thread) → chờ = chuyến **chậm nhất** thay vì **tổng** | ⬜ |
 | 1.4 | Tắt log thừa trên Pi | Kiểm tra level thực khi chạy. Ghi journald 50 dòng/giây trên Pi tốn I/O | ⬜ |
 | 1.5 | IP tĩnh thay `.local` | mDNS đôi khi mất vài trăm ms để phân giải. Tốn lúc connect và lúc reconnect sau timeout | ⬜ |
@@ -103,6 +103,38 @@ Câu hỏi: policy nhận số IMU của 200 ms trước thì sẽ làm gì?
 | 4.1 | Dây Ethernet thay WiFi | Cú nhảy lớn nhất về jitter: WiFi p99 vài chục ms, Ethernet p99 < 1 ms. Thử nghiệm treo giá thì cắm dây được. Nếu phải không dây: router riêng 5 GHz, không dùng WiFi trường | ⬜ |
 | 4.2 | Tắt WiFi power-save trên Pi | `iw dev wlan0 set power_save off`. Pi ngủ WiFi để tiết kiệm điện → gói đầu sau khi ngủ trễ 100+ ms. Rất hay gặp, rất khó nhận ra | ⬜ |
 | 4.3 | Ưu tiên tiến trình trên Pi | `chrt -f 50 python leg_server_left.py` hoặc `nice -n -10`. Không phải real-time thật, nhưng giảm bị thread khác chen | ⬜ |
+
+### Router riêng: TP-Link Archer C54
+
+**Chỉ cần cắm nguồn, không cần dây WAN.** Router làm 2 việc tách biệt: (1) tạo
+mạng LAN để các máy nói chuyện với nhau, (2) nối LAN ra internet qua cổng WAN.
+Robot chỉ cần việc (1). Cắm điện là xong.
+
+Cái mất khi không có internet: Pi không `pip install`, không `git pull`, không
+đồng bộ giờ NTP. Giờ lệch không sao — Pi dùng `time.monotonic()`, laptop so
+`t_sample` với chính nó, không so đồng hồ 2 máy. Cần cài gì thì cắm WAN tạm rồi rút.
+
+**Ba mức cắm dây** — không bắt buộc mức nào, để số đo Bậc 0 quyết:
+
+| Mức | Dây gì | Đoạn WiFi trên đường lệnh | Khi nào |
+|---|---|---|---|
+| 1 | Chỉ nguồn router | 2 (Pi → router → laptop) | Robot đi tự do. Chạy được, jitter cao nhất |
+| 2 | Nguồn + laptop cắm LAN | 1 (Pi → router) | **Khuyên dùng.** Laptop đứng yên cạnh router, robot vẫn tự do |
+| 3 | Nguồn + laptop + 2 Pi cắm LAN | 0 | Treo giá, debug timing |
+
+Cách quyết: chạy mức 1 với Bậc 0. p99 < 50 ms và `stale` < 1 % thì giữ mức 1.
+Không đạt → cắm 1 dây cho laptop (mức 2), đo lại. Thứ làm hỏng mức 1 không phải
+WiFi mà là **nhiễu** từ WiFi khác cùng kênh — phòng lab trường thường có.
+
+**Cài đặt router** (trang quản trị `192.168.0.1`):
+
+| # | Việc | Vì sao | TT |
+|---|---|---|---|
+| R1 | Tách tên WiFi 5 GHz khác 2.4 GHz, cho laptop + 2 Pi nối 5 GHz | 2.4 GHz xa nhưng chậm, nhiều nhiễu; 5 GHz gần nhưng nhanh, sạch. Để cùng tên thì thiết bị tự chọn, có thể rơi về 2.4 | ⬜ |
+| R2 | *DHCP → Address Reservation*: gán IP cố định cho 2 Pi | Rồi sửa `mobile1.local` / `mobile2.local` thành IP đó (mục 1.5) | ⬜ |
+| R3 | Kiểm tra **AP Isolation** đang **tắt** (mặc định tắt) | Bật lên thì các máy WiFi không nhìn thấy nhau | ⬜ |
+| R4 | Đặt router gần chỗ robot đi, trong vài mét, không qua tường | Giảm mất gói | ⬜ |
+| R5 | Tắt power-save WiFi trên Pi (mục 4.2) | — | ⬜ |
 
 ---
 

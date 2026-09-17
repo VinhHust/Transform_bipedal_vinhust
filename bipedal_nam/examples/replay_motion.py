@@ -1,4 +1,6 @@
 # FILE NÀY ĐƯỢC DÙNG ĐỂ REPLAY MOTION TỪ FILE JSON (trajectory_exports/trajectory_*.json)
+#  CÁC BEST RUN CẦN TEST :20260319_115232, 20260318_14380,20260319_120914
+
 import json
 import time
 import numpy as np
@@ -25,7 +27,7 @@ def load_trajectory(json_file: str) -> dict:
 
 
 def replay_first_steps(
-    robot: TransformerAPI, motion_data: dict, num_steps: int = 300, speed_factor: float = 1.0
+    robot: TransformerAPI, motion_data: dict, num_steps: int = 300, speed_factor: float = 0.85
 ):
     """
     ✅ Replay FIRST N steps từ motion sequence with timestamp sync
@@ -143,7 +145,7 @@ def main():
     # ========================================================================
     print("[2/3] Loading motion sequence...")
     motion_file = (
-        Path(__file__).parent.parent / "trajectory_exports" / "trajectory_20260319_132712.json"
+        Path(__file__).parent.parent / "trajectory_exports" / "trajectory_20260318_124358.json"
     )
 
     if not motion_file.exists():
@@ -163,8 +165,8 @@ def main():
     # ========================================================================
     print("\n🏠 Returning to home...")
     try:
-        robot.move_legs_to_initial_pose(speed=100)
-        robot.move_legs_to_home(speed=100)
+        robot.move_legs_to_initial_pose(speed=500)
+        robot.move_legs_to_home(speed=500)
     except Exception as e:
         print(f"⚠️  Cleanup error: {e}")
 
