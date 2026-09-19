@@ -52,6 +52,29 @@ Không có số thì không biết sửa được gì.
 Câu hỏi tự trả lời trước khi code: đặt `time.perf_counter()` ở **đâu** trong vòng
 lặp để `sleep` cuối vòng không làm sai số?
 
+### Số đo nền đã có (2026-09-19)
+
+Đo từ `examples_client/fuse.csv` (cột `dt_ms`, 337 mẫu), **chỉ lấy IMU qua REQ/REP
+WiFi** — chưa có lệnh động cơ, chưa có inference:
+
+| Chỉ số | Đo được | Mục tiêu |
+|---|---|---|
+| Tần số trung bình | **5.6 Hz** | 20 Hz |
+| dt median (p50) | **93 ms** | 50 ms |
+| dt p99 | **886 ms** | < 50 ms |
+| dt max | **916 ms** | — |
+| % vòng vượt 50 ms | **57 %** | < vài % |
+
+Chẩn đoán 2 tầng:
+- **Median 93 ms (bệnh nền):** hỏi 2 IMU **tuần tự** qua WiFi (~40 ms/chuyến × 2).
+  → thuốc: mục 1.3 (song song), Bậc 2 (PUB/SUB bỏ khứ hồi).
+- **Spike 886 ms (đột biến):** median 93 mà p99 886, chênh ~10×. Dấu hiệu **WiFi
+  power-save** / **mDNS `.local`** / **REQ retry timeout**, không phải REQ chậm đều.
+  → thuốc **rẻ nhất, làm trước:** 4.2 (tắt power-save), 1.5 (IP tĩnh), 4.1 (dây Ethernet).
+
+Quy trình: mỗi lần sửa **1 thứ** → chạy lại `collect_imu_fusion.py` → so `dt_ms` với
+bảng này. Đừng sửa nhiều thứ rồi mới đo.
+
 ---
 
 ## Bậc 1 — Cắt việc thừa (1 buổi, không đổi kiến trúc)
