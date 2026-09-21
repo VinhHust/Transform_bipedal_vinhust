@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from bipedal_robot.bipedal_left import BipedalRobot, BipedalConfig
 
 # Configure logging.
-# force=True la BAT BUOC: dong import lerobot o tren da gan san mot handler vao
+# force=True la sBAT BUOC: dong import lerobot o tren da gan san mot handler vao
 # root logger, ma basicConfig() mac dinh se lang le khong lam gi khi root da co
 # handler -> mat ca format lan level=INFO, va moi log INFO o tam module (dong
 # bao calib, dong bao IMU) bi nuot vi root van dung o muc WARNING.
@@ -579,7 +579,9 @@ class MCUServerLeft:
         pub.setsockopt(zmq.SNDHWM, 2)
         pub.setsockopt(zmq.LINGER, 0)
         pub.bind(f"tcp://*:{self.zmq_port + IMU_PUB_PORT_OFFSET}")
-        logger.info(f"✓ IMU PUB socket bound to port {self.zmq_port + IMU_PUB_PORT_OFFSET} (50Hz stream)")
+        logger.info(
+            f"✓ IMU PUB socket bound to port {self.zmq_port + IMU_PUB_PORT_OFFSET} (50Hz stream)"
+        )
 
         # Ngu TOI MOC dich thay vi ngu them 20ms: thoi gian doc I2C + fusion
         # cong don vao moi vong, neu ngu them thi chu ky that > 20ms. Khi chu
