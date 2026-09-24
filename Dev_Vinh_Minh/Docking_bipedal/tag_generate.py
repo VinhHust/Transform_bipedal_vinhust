@@ -1,20 +1,21 @@
+# test xem camera có thấy tag không
 import cv2
 from pupil_apriltags import Detector
 import matplotlib.pyplot as plt
 
 # Tạo detector cho tag36h11
-at_detector = Detector(families='tag36h11')
+at_detector = Detector(families="tag36h11")
 
 # Mở webcam
-cap = cv2.VideoCapture(0)
+cap = cv2.VideoCapture(2)
 
 # Khởi tạo cửa sổ matplotlib
 plt.ion()  # chế độ tương tác (interactive)
 fig, ax = plt.subplots()
 
-im = ax.imshow([[0]], cmap='gray')
+im = ax.imshow([[0]], cmap="gray")
 plt.title("AprilTag Detection")
-plt.axis('off')
+plt.axis("off")
 
 while True:
     ret, frame = cap.read()
@@ -34,8 +35,15 @@ while True:
                 cv2.line(frame, pt1, pt2, (0, 255, 0), 2)
 
             center = tuple(tag.center.astype(int))
-            cv2.putText(frame, f"ID: {tag.tag_id}", center,
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            cv2.putText(
+                frame,
+                f"ID: {tag.tag_id}",
+                center,
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 0, 255),
+                2,
+            )
 
     # Cập nhật ảnh trong matplotlib
     im.set_data(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))

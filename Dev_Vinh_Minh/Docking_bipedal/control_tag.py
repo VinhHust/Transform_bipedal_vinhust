@@ -11,6 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+# Bản này để ghép vào robot thật
 """
 Utilities to control a LeKiwi robot remotely.
 
@@ -29,8 +31,10 @@ python control_base.py \
     --control.viewer_port=32323
 ```
 """
-#12/06/2025
+
+# 12/06/2025
 import sys
+
 sys.path.append("/home/nam/Lekiwi_ws/src/lerobot")
 
 import logging
@@ -44,7 +48,7 @@ from lerobot.common.robot_devices.control_configs import (
     ControlConfig,
     ControlPipelineConfig,
     RemoteRobotConfig,
-    TeleoperateControlConfig
+    TeleoperateControlConfig,
 )
 from lerobot.common.robot_devices.robots.utils import Robot, make_robot_from_config
 from lerobot.common.robot_devices.utils import safe_disconnect
@@ -60,6 +64,7 @@ import json
 import zmq
 import numpy as np
 
+
 def phase_2to5(cfg: ControlPipelineConfig):
     """
     Auto docking
@@ -72,27 +77,32 @@ def phase_2to5(cfg: ControlPipelineConfig):
     ip = cfg.robot.ip
     port = cfg.robot.port
 
-    # ZeroMQ PUSH socket 
+    # ZeroMQ PUSH socket
     context = zmq.Context()
     cmd_socket = context.socket(zmq.PUSH)
     cmd_socket.connect(f"tcp://{ip}:{port}")
     cmd_socket.setsockopt(zmq.CONFLATE, 1)
 
     # Load camera calibration
-    calib_data = np.load("/home/tatung/lerobot/lerobot/common/utils/arm1_calib_data.npz")
-    camera_matrix = calib_data['mtx']
-    dist_coeffs = calib_data['dist']
+    calib_data = np.load(
+        "/home/tatung/lerobot/lerobot/common/utils/arm1_calib_data.npz"
+    )
+    camera_matrix = calib_data["mtx"]
+    dist_coeffs = calib_data["dist"]
 
     TAG_SIZE = 0.034  # m
     half_size = TAG_SIZE / 2
-    object_points = np.array([
-        [-half_size, -half_size, 0],
-        [ half_size, -half_size, 0],
-        [ half_size,  half_size, 0],
-        [-half_size,  half_size, 0],
-    ], dtype=np.float32)
+    object_points = np.array(
+        [
+            [-half_size, -half_size, 0],
+            [half_size, -half_size, 0],
+            [half_size, half_size, 0],
+            [-half_size, half_size, 0],
+        ],
+        dtype=np.float32,
+    )
 
-    at_detector = Detector(families='tag36h11', nthreads=1, quad_decimate=1.0)
+    at_detector = Detector(families="tag36h11", nthreads=1, quad_decimate=1.0)
 
     cap = cv2.VideoCapture(0)
     CENTER_X = 320
@@ -104,7 +114,9 @@ def phase_2to5(cfg: ControlPipelineConfig):
     recovery_mode = False
     recovery_direction = None
 
-    def body_to_wheel_raw(x_cmd, y_cmd, theta_cmd, wheel_radius=0.05, base_radius=0.125, max_raw=3000):
+    def body_to_wheel_raw(
+        x_cmd, y_cmd, theta_cmd, wheel_radius=0.05, base_radius=0.125, max_raw=3000
+    ):
         theta_rad = theta_cmd * (np.pi / 180.0)
         velocity_vector = np.array([x_cmd, y_cmd, theta_rad])
         angles = np.radians(np.array([300, 180, 60]))
@@ -119,9 +131,14 @@ def phase_2to5(cfg: ControlPipelineConfig):
             scale = max_raw / max_raw_computed
             wheel_degps = wheel_degps * scale
         wheel_raw = [
-            int(round(abs(degps) * steps_per_deg)) | (0x8000 if degps < 0 else 0) for degps in wheel_degps
+            int(round(abs(degps) * steps_per_deg)) | (0x8000 if degps < 0 else 0)
+            for degps in wheel_degps
         ]
-        return {"left_wheel": wheel_raw[2], "back_wheel": wheel_raw[0], "right_wheel": wheel_raw[1]}
+        return {
+            "left_wheel": wheel_raw[2],
+            "back_wheel": wheel_raw[0],
+            "right_wheel": wheel_raw[1],
+        }
 
     print("LeKiwi AprilTag auto-docking client started. Press Ctrl+C to quit.")
 
@@ -145,7 +162,9 @@ def phase_2to5(cfg: ControlPipelineConfig):
                 x_cmd = 0.0
                 y_cmd = -0.08  # Or any other value to move forward
                 theta_cmd = 0.0
-                print(f"[DEBUG] Move forward 1.5s after docking: x_cmd={x_cmd}, y_cmd={y_cmd}, theta_cmd={theta_cmd}")
+                print(
+                    f"[DEBUG] Move forward 1.5s after docking: x_cmd={x_cmd}, y_cmd={y_cmd}, theta_cmd={theta_cmd}"
+                )
                 start_time = time.time()
                 while time.time() - start_time < 1.5:
                     wheel_commands = body_to_wheel_raw(x_cmd, y_cmd, theta_cmd)
@@ -172,12 +191,14 @@ def phase_2to5(cfg: ControlPipelineConfig):
                         steps_per_rev = 4096
                         deg_per_rad = 180.0 / np.pi
                         steps_per_deg = steps_per_rev / 360.0
+
                         def encode(val):
                             degps = val * deg_per_rad
                             raw = int(round(abs(degps) * steps_per_deg))
                             if val < 0:
                                 raw |= 0x8000
                             return raw
+
                         return {
                             "left_wheel": encode(left),
                             "back_wheel": encode(back),
@@ -187,12 +208,14 @@ def phase_2to5(cfg: ControlPipelineConfig):
                     wheel_commands = body_to_wheel_raw(-0.866, -1.866, 3.5)
                     message = {"raw_velocity": wheel_commands}
 
-                    print("Sending start autonomous signal to lekiwi2 for 15 seconds...")
+                    print(
+                        "Sending start autonomous signal to lekiwi2 for 15 seconds..."
+                    )
                     start_time = time.time()
                     while time.time() - start_time <= 7.0:
                         cmd_socket2.send_string(json.dumps(message))
                         time.sleep(0.033)  # ~30Hz
-                        
+
                     stop_commands = body_to_wheel_raw(0.0, 0.0, 0.0)
                     stop_message = {"raw_velocity": stop_commands}
                     for _ in range(30):  # Send 30 stop commands
@@ -202,16 +225,17 @@ def phase_2to5(cfg: ControlPipelineConfig):
 
                     print("Done sending signal to lekiwi2.")
                     from control_arm import rest_phase
+
                     print("Recovering arm to rest position...")
                     rest_phase(cfg)
 
                     cmd_socket2.close()
                     context2.term()
-                    
+
                 except Exception as e:
                     print(f"Error sending signal to lekiwi2: {e}")
                 continue
-            
+
             if docking_done:
                 # If docking is done, we stop the robot
                 control_text = "Docking complete - STOP"
@@ -219,9 +243,11 @@ def phase_2to5(cfg: ControlPipelineConfig):
                 y_cmd = 0.0
                 theta_cmd = 0.0
                 # Print debug info
-                print(f"[DEBUG] z={z:.3f}, offset_x={offset_x:.2f}, yaw={yaw_deg:.2f}, "
+                print(
+                    f"[DEBUG] z={z:.3f}, offset_x={offset_x:.2f}, yaw={yaw_deg:.2f}, "
                     f"x_cmd={x_cmd:.3f}, y_cmd={y_cmd:.3f}, theta_cmd={theta_cmd:.3f}, "
-                    f"control_text={control_text}")
+                    f"control_text={control_text}"
+                )
                 wheel_commands = body_to_wheel_raw(x_cmd, y_cmd, theta_cmd)
                 message = {"raw_velocity": wheel_commands}
                 cmd_socket.send_string(json.dumps(message))
@@ -233,9 +259,9 @@ def phase_2to5(cfg: ControlPipelineConfig):
             y_cmd = 0.0
             theta_cmd = 0.0
 
-            z = float('nan')
-            offset_x = float('nan')
-            yaw_deg = float('nan')
+            z = float("nan")
+            offset_x = float("nan")
+            yaw_deg = float("nan")
 
             for tag in tags:
                 if tag.tag_id == 0:
@@ -243,7 +269,9 @@ def phase_2to5(cfg: ControlPipelineConfig):
                     recovery_mode = False
 
                     corners = tag.corners.astype(np.float32)
-                    success, rvec, tvec = cv2.solvePnP(object_points, corners, camera_matrix, dist_coeffs)
+                    success, rvec, tvec = cv2.solvePnP(
+                        object_points, corners, camera_matrix, dist_coeffs
+                    )
                     if success:
                         R, _ = cv2.Rodrigues(rvec)
                         R[:, 0] *= -1
@@ -269,7 +297,9 @@ def phase_2to5(cfg: ControlPipelineConfig):
                             control_text = "Turn LEFT" if yaw_deg > 0 else "Turn RIGHT"
                             theta_cmd = 15 if yaw_deg > 0 else -15
                         elif abs(offset_x) > TOLERANCE_X:
-                            control_text = "Slide LEFT" if offset_x > 0 else "Slide RIGHT"
+                            control_text = (
+                                "Slide LEFT" if offset_x > 0 else "Slide RIGHT"
+                            )
                             x_cmd = -0.05 if offset_x > 0 else 0.05
                         else:
                             control_text = "Move FORWARD"
@@ -311,13 +341,14 @@ def phase_2to5(cfg: ControlPipelineConfig):
                         y_cmd = 0.0
                         theta_cmd = 15  # slow rotate
 
-
             prev_cmd = control_text
 
-            print(f"[DEBUG] z={z:.3f}, offset_x={offset_x:.2f}, yaw={yaw_deg:.2f}, "
-                  f"x_cmd={x_cmd:.3f}, y_cmd={y_cmd:.3f}, theta_cmd={theta_cmd:.3f}, "
-                  f"control_text={control_text}")
-            
+            print(
+                f"[DEBUG] z={z:.3f}, offset_x={offset_x:.2f}, yaw={yaw_deg:.2f}, "
+                f"x_cmd={x_cmd:.3f}, y_cmd={y_cmd:.3f}, theta_cmd={theta_cmd:.3f}, "
+                f"control_text={control_text}"
+            )
+
             # Send cmd to robot
             wheel_commands = body_to_wheel_raw(x_cmd, y_cmd, theta_cmd)
             message = {"raw_velocity": wheel_commands}
@@ -332,8 +363,11 @@ def phase_2to5(cfg: ControlPipelineConfig):
         cmd_socket.close()
         context.term()
         print("Client stopped.")
-                    
-def _init_rerun(control_config: ControlConfig, session_name: str = "lerobot_control_loop_remote") -> None:
+
+
+def _init_rerun(
+    control_config: ControlConfig, session_name: str = "lerobot_control_loop_remote"
+) -> None:
     """Initializes the Rerun SDK for visualizing the control loop.
 
     Args:
@@ -366,6 +400,7 @@ def _init_rerun(control_config: ControlConfig, session_name: str = "lerobot_cont
             memory_limit = os.getenv("LEROBOT_RERUN_MEMORY_LIMIT", "10%")
             rr.spawn(memory_limit=memory_limit)
 
+
 @safe_disconnect
 def run_lekiwi_remote(robot: Robot, cfg: RemoteRobotConfig):
     """Runs the LeKiwi robot in remote mode.
@@ -378,6 +413,7 @@ def run_lekiwi_remote(robot: Robot, cfg: RemoteRobotConfig):
 
     _init_rerun(control_config=cfg, session_name="lerobot_control_loop_remote")
     base_control(robot.config, duration_s=3600.0, record_data=False)
+
 
 @parser.wrap()
 def control_base(cfg: ControlPipelineConfig):
@@ -393,7 +429,10 @@ def control_base(cfg: ControlPipelineConfig):
 
     if isinstance(cfg.control, RemoteRobotConfig):
         from lerobot.common.robot_devices.robots.lekiwi_remote import base_control
-        _init_rerun(control_config=cfg.control, session_name="lerobot_control_loop_remote")
+
+        _init_rerun(
+            control_config=cfg.control, session_name="lerobot_control_loop_remote"
+        )
         base_control(cfg.robot, duration_s=3600.0, record_data=False)
     elif isinstance(cfg.control, TeleoperateControlConfig):
         phase_2to5(cfg)
@@ -402,6 +441,7 @@ def control_base(cfg: ControlPipelineConfig):
 
     if robot.is_connected:
         robot.disconnect()
+
 
 if __name__ == "__main__":
     control_base()
