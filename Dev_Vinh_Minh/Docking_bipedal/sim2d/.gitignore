@@ -1,0 +1,3 @@
+# ảnh sinh ra khi chạy sim + cache python
+out/
+__pycache__/

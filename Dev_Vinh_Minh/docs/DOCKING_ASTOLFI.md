@@ -310,6 +310,9 @@ Dán lên **tấm phẳng cứng** (mica/nhôm) — mặt cong làm `solvePnP` s
 | Deadband `α` | 2° | tránh rung quanh cân bằng |
 | Dung sai xong | `ρ<ρ_done`, `\|θ_d\|<θ_done`, giữ N frame | cơ khí quyết định |
 
+⚠️ `ρ_done`, `θ_done` phải **chặt hơn** dung sai cơ khí, có lề (vd bằng một nửa). Astolfi tiến sát dần nên
+xe dừng ngay khi vừa lọt ngưỡng → sai số cuối ≈ `ρ_done`. Sim 2D: ngưỡng dừng 1 cm → sai khe cuối 10.02 mm.
+
 **Chặn bắt buộc:** clamp `v, ω` về giới hạn phần cứng (chia cùng một hệ số để giữ tỉ `v/ω`);
 `v_min` (thắng ma sát tĩnh). Xử lý gần đích và `|α|>90°` nằm ở giám sát §6, không lặp lại ở đây.
 

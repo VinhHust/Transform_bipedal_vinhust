@@ -195,10 +195,11 @@ elif |θ_G| > heading_tol:         v = 0, ω = k_h·θ_G, clamp   # xoay tại c
 else:                             DONE
 ```
 
-- Dùng **cùng một** `pos_tol` cho ngưỡng chuyển nhánh và ngưỡng thành công. Tránh bẫy "dừng ở 3 cm mà đòi 2 cm".
+- Dùng **cùng một** `pos_tol` cho ngưỡng chuyển nhánh và ngưỡng DONE của controller. Tránh bẫy "dừng ở 3 cm mà đòi 2 cm".
+- Ngưỡng dừng của controller phải **chặt hơn** ngưỡng đạt của đầu nối (có lề). Astolfi tiến sát dần, xe dừng ngay khi vừa lọt ngưỡng → sai số cuối ≈ ngưỡng dừng. Sim đã cho thấy: `pos_tol = 1 cm` → sai khe cuối 10.02 mm, trượt ngưỡng đạt 1 cm.
 - Nhánh xoay dùng θ_G (hướng đích so với thân), **không** dùng β. Khi ρ ≈ 0 thì α vô định, nên β vô nghĩa.
 - Xoay tại chỗ quanh tâm bánh không đổi ρ → không nhảy qua lại giữa các nhánh.
-- Ngưỡng minh hoạ: `pos_tol = 0.01 m`, `heading_tol = 2°`, `k_h = 1.0`.
+- Ngưỡng minh hoạ: `pos_tol = 5 mm`, `heading_tol = 1°` (một nửa ngưỡng đạt 1 cm / 2° ở Mốc 3), `k_h = 1.0`.
 - `max_time = 30 s` → `TIMEOUT`.
 
 ## 6. Vòng lặp
