@@ -1,8 +1,11 @@
+import os
+
 import cv2
 import numpy as np
 
-# Load dữ liệu calib
-with np.load('calibdatanew.npz') as data:
+# Load dữ liệu calib (file nằm cạnh script, chạy từ thư mục nào cũng được)
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+with np.load(os.path.join(SCRIPT_DIR, 'calibdatanew.npz')) as data:
     mtx = data['mtx']
     dist = data['dist']
 

@@ -3,9 +3,11 @@ import time
 import json
 import numpy as np
 import sys
+from pathlib import Path
 
 # --- BƯỚC 1: TẢI THÔNG SỐ TỪ FILE JSON ---
-CALIB_FILE = "vinh_accel_calib.json"
+# Đọc cạnh file này, không theo thư mục đang đứng
+CALIB_FILE = Path(__file__).resolve().parent / "vinh_accel_calib.json"
 
 try:
     with open(CALIB_FILE, "r") as f:

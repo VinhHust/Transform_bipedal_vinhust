@@ -3,6 +3,7 @@ import time
 import json
 import numpy as np
 import sys
+from pathlib import Path
 
 # CÁC THÔNG SỐ ĐỂ CALIB ACCEL
 SAMPLES_PER_FACE = 500  # Số mẫu thu thập cho mỗi mặt (tư thế)
@@ -102,7 +103,8 @@ print("SM =", np.round(SM, 4).tolist())
 print("Bias =", np.round(Bias, 4).tolist())
 
 # --- BƯỚC 5: LƯU RA JSON ---
-OUTPUT_FILE = "vinh_accel_calib.json"
+# Ghi vào READ/ tính từ vị trí script (giống calib_gyro.py), không theo thư mục đang đứng
+OUTPUT_FILE = Path(__file__).parent.parent / "READ" / "vinh_accel_calib.json"
 
 def convert_to_float(obj):
     if isinstance(obj, np.ndarray):

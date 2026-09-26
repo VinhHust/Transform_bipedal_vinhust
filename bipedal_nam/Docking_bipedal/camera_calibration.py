@@ -2,8 +2,14 @@
 # trả về file npz gồm mtx: ma trận camera gồm tiêu cự và tâm ảnh
 # dist: hệ số méo ống kính
 
+import os
+
 import cv2
 import numpy as np
+
+# Lưu npz cạnh file này để tag_control.py đọc được, chạy từ thư mục nào cũng vậy
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CALIB_PATH = os.path.join(SCRIPT_DIR, "calibdatanew.npz")
 
 # 📐 Cấu hình checkerboard (ô bên trong)
 CHECKERBOARD = (8, 5)  # tức là cần in 9x6 ô vuông
@@ -92,5 +98,5 @@ print(mtx)
 print("\nDistortion coefficients:")
 print(dist.ravel())
 
-np.savez("calibdatanew.npz", mtx=mtx, dist=dist)
-print("📁 Đã lưu vào file: arm1_calib_data.npz")
+np.savez(CALIB_PATH, mtx=mtx, dist=dist)
+print(f"📁 Đã lưu vào file: {CALIB_PATH}")

@@ -29,7 +29,8 @@ logger = logging.getLogger(__name__)
 # # ==============================
 # # Load calibration
 # # ==============================
-CALIB_DIR = Path("/home/mobile1/Transform_bipedal/bipedal_nam/Calib/READ")
+# Tính theo vị trí file: src/leg_server_pubsub/ -> lùi 2 cấp là bipedal_nam/
+CALIB_DIR = Path(__file__).resolve().parents[2] / "Calib_IMU" / "READ"
 GYRO_CALIB_PATH = CALIB_DIR / "vinhgyrocalib.json"
 ACCEL_CALIB_PATH = CALIB_DIR / "vinh_accel_calib_ellipsoid.json"
 

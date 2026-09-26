@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 
-from bipedal_nam.Docking_bipedal.sim2d.dock_math import (
+from dock_math import (
     ControllerConfig,
     clamp_command,
     compose,
@@ -20,7 +20,7 @@ from bipedal_nam.Docking_bipedal.sim2d.dock_math import (
     virtual_camera,
     wrap_angle,
 )
-import bipedal_nam.Docking_bipedal.sim2d.dock_sim as dock_sim  # simulator (vòng lặp) cho các test C; kéo theo matplotlib nhưng không mở cửa sổ
+import dock_sim  # simulator (vòng lặp) cho các test C; kéo theo matplotlib nhưng không mở cửa sổ
 
 TOL = 1e-9  # m hoặc rad; hình học lý tưởng nên sai số chỉ còn làm tròn float
 d = np.deg2rad

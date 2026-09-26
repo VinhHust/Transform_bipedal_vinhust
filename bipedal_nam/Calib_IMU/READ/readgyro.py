@@ -2,6 +2,7 @@ import qwiic_icm20948
 import json
 import time
 import logging
+from pathlib import Path
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -10,7 +11,8 @@ logger = logging.getLogger(__name__)
 # 1. ĐỌC DỮ LIỆU CALIB TỪ FILE CỦA BẠN
 # ==========================================
 try:
-    with open("vinhgyrocalib.json", "r") as f:
+    # Đọc cạnh file này, không theo thư mục đang đứng
+    with open(Path(__file__).resolve().parent / "vinhgyrocalib.json", "r") as f:
         calib = json.load(f)
     
     gx_bias = calib.get("gx_bias", 0)

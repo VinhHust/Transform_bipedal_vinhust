@@ -19,7 +19,7 @@ import numpy as np
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import FancyArrow, Polygon
 
-from bipedal_nam.Docking_bipedal.sim2d.dock_math import (
+from dock_math import (
     ControllerConfig,
     ControlOutput,
     compose,
