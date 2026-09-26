@@ -19,7 +19,7 @@ import numpy as np
 from matplotlib.animation import FuncAnimation
 from matplotlib.patches import FancyArrow, Polygon
 
-from dock_math import (
+from bipedal_nam.Docking_bipedal.sim2d.dock_math import (
     ControllerConfig,
     ControlOutput,
     compose,
@@ -44,7 +44,9 @@ OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 D = 0.10  # m, khe male–female ở standby
 POSE_M_IN_A = pose(0.13, 0.00, 0)  # male trên trục giữa, đầu male cách tâm quay 13 cm
 POSE_C_IN_A = pose(0.08, -0.05, 0)  # camera trên mặt trước, lệch PHẢI 5 cm, nhìn thẳng
-POSE_F_IN_T = pose(0.02, -0.05, 0)  # đứng ở tag nhìn ra: miệng female nhô trước 2 cm, lệch PHẢI 5 cm
+POSE_F_IN_T = pose(
+    0.02, -0.05, 0
+)  # đứng ở tag nhìn ra: miệng female nhô trước 2 cm, lệch PHẢI 5 cm
 
 # Cảnh: female ở gốc W, miệng nhìn về -x -> trục dock nằm ngang, số dễ đọc.
 # Xoay/dời cả cảnh không đổi kết quả (test G04).
@@ -72,7 +74,11 @@ KINEMATICS_CASES = [  # (tên, v m/s, ω rad/s)
 
 # ======== Mốc 3: vòng lặp docking ========
 MAX_TIME = 30.0  # s, quá thì TIMEOUT
-SUCCESS_TOL = (0.01, 0.01, d(2))  # (lệch ngang m, sai khe m, lệch góc rad): ngưỡng minh hoạ, chưa phải dung sai ren
+SUCCESS_TOL = (
+    0.01,
+    0.01,
+    d(2),
+)  # (lệch ngang m, sai khe m, lệch góc rad): ngưỡng minh hoạ, chưa phải dung sai ren
 
 
 class Geometry(NamedTuple):
@@ -106,7 +112,9 @@ def rect(x0, x1, y0, y1):
 
 def add_shape(ax, pose_X_in_W, pts_in_X, color, ls="-", lw=CAR_LW):
     """Vẽ viền đa giác cho trong hệ X lên W. Trả về patch để animation dời được."""
-    patch = Polygon(transform_points(pose_X_in_W, pts_in_X), closed=True, fill=False, ec=color, lw=lw, ls=ls)
+    patch = Polygon(
+        transform_points(pose_X_in_W, pts_in_X), closed=True, fill=False, ec=color, lw=lw, ls=ls
+    )
     return ax.add_patch(patch)
 
 
@@ -114,8 +122,15 @@ def add_arrow(ax, pose_X_in_W, length, color):
     """Mũi tên theo hướng pose."""
     x, y, th = pose_X_in_W
     arrow = FancyArrow(
-        x, y, length * np.cos(th), length * np.sin(th), width=0.006,
-        head_width=0.025, head_length=0.03, length_includes_head=True, color=color,
+        x,
+        y,
+        length * np.cos(th),
+        length * np.sin(th),
+        width=0.006,
+        head_width=0.025,
+        head_length=0.03,
+        length_includes_head=True,
+        color=color,
     )
     return ax.add_patch(arrow)
 
@@ -154,12 +169,24 @@ class CarA:
 def draw_car_B(ax):
     """Xe B đứng yên: thân + 2 bánh + female + tag, vẽ trong hệ tag."""
     x_mouth, y_female = POSE_F_IN_T[0], POSE_F_IN_T[1]
-    add_shape(ax, POSE_T_IN_W, rect(-B_LENGTH, 0, y_female - B_HALF_WIDTH, y_female + B_HALF_WIDTH), CAR)
+    add_shape(
+        ax, POSE_T_IN_W, rect(-B_LENGTH, 0, y_female - B_HALF_WIDTH, y_female + B_HALF_WIDTH), CAR
+    )
     for side in (1, -1):
         y0 = y_female + side * B_HALF_WIDTH
         x_axle = -B_LENGTH / 2
-        add_shape(ax, POSE_T_IN_W, rect(x_axle - WHEEL_RADIUS, x_axle + WHEEL_RADIUS, y0, y0 + side * WHEEL_WIDTH), CAR)
-    add_shape(ax, POSE_T_IN_W, rect(0, x_mouth, y_female - FEMALE_WIDTH / 2, y_female + FEMALE_WIDTH / 2), CAR)
+        add_shape(
+            ax,
+            POSE_T_IN_W,
+            rect(x_axle - WHEEL_RADIUS, x_axle + WHEEL_RADIUS, y0, y0 + side * WHEEL_WIDTH),
+            CAR,
+        )
+    add_shape(
+        ax,
+        POSE_T_IN_W,
+        rect(0, x_mouth, y_female - FEMALE_WIDTH / 2, y_female + FEMALE_WIDTH / 2),
+        CAR,
+    )
     tag = transform_points(POSE_T_IN_W, [[0, -TAG_SIZE / 2], [0, TAG_SIZE / 2]])
     ax.plot(tag[:, 0], tag[:, 1], "k", lw=5, solid_capstyle="butt")
 
@@ -191,19 +218,32 @@ def draw_scene(G_in_W, G_true_in_W):
 
     # camera: góc nhìn 85° + tia tới tag
     for side in (1, -1):
-        edge = compose(camera, pose(0.30 * np.cos(CAMERA_HFOV / 2), side * 0.30 * np.sin(CAMERA_HFOV / 2), 0))
+        edge = compose(
+            camera, pose(0.30 * np.cos(CAMERA_HFOV / 2), side * 0.30 * np.sin(CAMERA_HFOV / 2), 0)
+        )
         ax.plot([camera[0], edge[0]], [camera[1], edge[1]], "--", color=GHOST, lw=0.8)
     for cam in (camera, camera_ghost):
         ax.plot([cam[0], POSE_T_IN_W[0]], [cam[1], POSE_T_IN_W[1]], ":", color=GHOST, lw=0.8)
 
     # khe D giữa đầu male (xe ở standby) và miệng female
     y_gap = POSE_F_IN_W[1] + 0.07
-    ax.annotate("", xy=(POSE_F_IN_W[0], y_gap), xytext=(male_ghost[0], y_gap),
-                arrowprops=dict(arrowstyle="<->", lw=0.8, shrinkA=0, shrinkB=0))
-    ax.text((POSE_F_IN_W[0] + male_ghost[0]) / 2, y_gap + 0.01, f"D = {D:.2f}", ha="center", fontsize=8)
+    ax.annotate(
+        "",
+        xy=(POSE_F_IN_W[0], y_gap),
+        xytext=(male_ghost[0], y_gap),
+        arrowprops=dict(arrowstyle="<->", lw=0.8, shrinkA=0, shrinkB=0),
+    )
+    ax.text(
+        (POSE_F_IN_W[0] + male_ghost[0]) / 2, y_gap + 0.01, f"D = {D:.2f}", ha="center", fontsize=8
+    )
 
-    for text, xy in [("A", POSE_A_START_IN_W), ("camera", camera), ("standby", G_in_W),
-                     ("tag", POSE_T_IN_W), ("B", compose(POSE_T_IN_W, pose(-B_LENGTH / 2, 0, 0)))]:
+    for text, xy in [
+        ("A", POSE_A_START_IN_W),
+        ("camera", camera),
+        ("standby", G_in_W),
+        ("tag", POSE_T_IN_W),
+        ("B", compose(POSE_T_IN_W, pose(-B_LENGTH / 2, 0, 0))),
+    ]:
         ax.annotate(text, xy=xy[:2], xytext=(5, -12), textcoords="offset points", fontsize=8)
     note(ax, [f"Start: {fmt(POSE_A_START_IN_W)}", f"Standby: {fmt(G_in_W)}"])
     fig.tight_layout()
@@ -227,7 +267,9 @@ def run_static_scene():
     print(f"  Standby đó đổi sang W           {fmt(G_in_W)}")
     print(f"  Standby thật trong W            {fmt(G_true_in_W)}")
     print(f"  Lệch giữa hai cái               {np.hypot(*(G_in_W - G_true_in_W)[:2]):.1e} m")
-    print(f"  Tại standby, camera thấy tag ở  {fmt(virtual_camera(G_in_W, POSE_C_IN_A, POSE_T_IN_W))}")
+    print(
+        f"  Tại standby, camera thấy tag ở  {fmt(virtual_camera(G_in_W, POSE_C_IN_A, POSE_T_IN_W))}"
+    )
     print(
         f"  Sai số dock tại standby         lệch ngang {e_lat * 1000:+.1f} mm, "
         f"sai khe {e_gap * 1000:+.1f} mm, lệch góc {np.rad2deg(e_ang):+.2f}°"
@@ -258,7 +300,9 @@ def build_kinematics_figure():
     """3 ô, mỗi ô một lệnh hằng. Trả về (fig, update(frame), số frame)."""
     fig, axes = plt.subplots(1, 3, figsize=(13, 4.5))
     panels = []
-    print(f"Lệnh hằng trong {KINEMATICS_DURATION:.0f} s, dt = {DT} s (Euler) so với công thức chính xác:")
+    print(
+        f"Lệnh hằng trong {KINEMATICS_DURATION:.0f} s, dt = {DT} s (Euler) so với công thức chính xác:"
+    )
     for ax, (name, v, omega) in zip(axes, KINEMATICS_CASES):
         times, poses = run_constant(pose(0, 0, 0), v, omega, DT, KINEMATICS_DURATION)
         tips = np.array([compose(p, POSE_M_IN_A)[:2] for p in poses])
@@ -308,8 +352,12 @@ class DockRun(NamedTuple):
 
 
 def simulate_docking(
-    A_start_in_W, T_in_W=POSE_T_IN_W, geom=SCENE_GEOMETRY,
-    cfg=ControllerConfig(), dt=DT, max_time=MAX_TIME,
+    A_start_in_W,
+    T_in_W=POSE_T_IN_W,
+    geom=SCENE_GEOMETRY,
+    cfg=ControllerConfig(),
+    dt=DT,
+    max_time=MAX_TIME,
 ):
     """Vòng lặp plan §6: camera ảo -> female -> standby -> controller -> xe chạy.
 
@@ -352,7 +400,9 @@ def docked(run):
 def print_dock_summary(run, title):
     log = run.log
     e_lat, e_gap, e_ang = run.errors
-    clamped = np.mean((np.abs(log["v"] - log["v_raw"]) + np.abs(log["omega"] - log["omega_raw"])) > 1e-12)
+    clamped = np.mean(
+        (np.abs(log["v"] - log["v_raw"]) + np.abs(log["omega"] - log["omega_raw"])) > 1e-12
+    )
     print(f"{title}:")
     print(f"  Kết thúc {run.status} sau {log['t'][-1]:.2f} s ({len(log['t']) - 1} bước)")
     print(
@@ -421,7 +471,9 @@ def build_dock_plots(run, cfg=ControllerConfig()):
     """4 đồ thị theo thời gian (plan §7.3). Mỗi ô một đơn vị."""
     log = run.log
     t = log["t"]
-    regulate = log["status"] == "REGULATE"  # α, β chỉ có nghĩa khi còn chạy Astolfi; sát đích để trống
+    regulate = (
+        log["status"] == "REGULATE"
+    )  # α, β chỉ có nghĩa khi còn chạy Astolfi; sát đích để trống
     fig, (ax_rho, ax_ang, ax_v, ax_w) = plt.subplots(4, 1, figsize=(8, 8), sharex=True)
 
     ax_rho.semilogy(t, log["rho"], label="rho")
@@ -468,7 +520,9 @@ def save(fig, name):
 
 def main():
     parser = argparse.ArgumentParser(description="Mô phỏng docking 2D")
-    parser.add_argument("scene", nargs="?", default="static", choices=["static", "kinematics", "dock"])
+    parser.add_argument(
+        "scene", nargs="?", default="static", choices=["static", "kinematics", "dock"]
+    )
     parser.add_argument("--no-anim", action="store_true", help="chỉ vẽ trạng thái cuối")
     parser.add_argument("--no-show", action="store_true", help="không mở cửa sổ, chỉ lưu PNG")
     args = parser.parse_args()
@@ -484,7 +538,9 @@ def main():
         anim = animate(fig, update, n_frames) if use_anim else None
     else:
         run = simulate_docking(POSE_A_START_IN_W)
-        print_dock_summary(run, f"Docking — cảnh theo hình vẽ tay, xuất phát {fmt(POSE_A_START_IN_W)}")
+        print_dock_summary(
+            run, f"Docking — cảnh theo hình vẽ tay, xuất phát {fmt(POSE_A_START_IN_W)}"
+        )
         fig, update, n_frames = build_dock_figure(run)
         update(n_frames - 1)
         save(fig, "dock_scene.png")

@@ -5,7 +5,7 @@ import unittest
 
 import numpy as np
 
-from dock_math import (
+from bipedal_nam.Docking_bipedal.sim2d.dock_math import (
     ControllerConfig,
     clamp_command,
     compose,
@@ -20,7 +20,7 @@ from dock_math import (
     virtual_camera,
     wrap_angle,
 )
-import dock_sim  # simulator (vòng lặp) cho các test C; kéo theo matplotlib nhưng không mở cửa sổ
+import bipedal_nam.Docking_bipedal.sim2d.dock_sim as dock_sim  # simulator (vòng lặp) cho các test C; kéo theo matplotlib nhưng không mở cửa sổ
 
 TOL = 1e-9  # m hoặc rad; hình học lý tưởng nên sai số chỉ còn làm tròn float
 d = np.deg2rad
@@ -36,9 +36,7 @@ class PoseTestCase(unittest.TestCase):
         msg = f"ra {fmt(actual)}, mong đợi {fmt(expected)}"
         self.assertAlmostEqual(actual[0], expected[0], delta=tol, msg=msg)
         self.assertAlmostEqual(actual[1], expected[1], delta=tol, msg=msg)
-        self.assertAlmostEqual(
-            wrap_angle(actual[2] - expected[2]), 0.0, delta=tol, msg=msg
-        )
+        self.assertAlmostEqual(wrap_angle(actual[2] - expected[2]), 0.0, delta=tol, msg=msg)
 
     def assertErrorsClose(self, actual, expected):
         """So bộ (lệch ngang, sai khe, lệch góc) của dock_errors."""
@@ -73,9 +71,7 @@ class TestWrapAngle(unittest.TestCase):
 class TestComposeInverse(PoseTestCase):
     def test_compose_car_facing_up(self):
         """Xe (1, 0, 90°), camera trước tâm bánh 10 cm -> camera ở (1, 0.1, 90°)."""
-        self.assertPoseClose(
-            compose(pose(1, 0, d(90)), pose(0.1, 0, 0)), pose(1, 0.1, d(90))
-        )
+        self.assertPoseClose(compose(pose(1, 0, d(90)), pose(0.1, 0, 0)), pose(1, 0.1, d(90)))
 
     def test_inverse_car_facing_up(self):
         """Xe (1, 0, 90°) -> gốc W nằm bên TRÁI xe 1 m: W trong A = (0, 1, -90°)."""
@@ -120,9 +116,7 @@ class TestFixture1(PoseTestCase):
 
     def test_G01_2_tag_in_camera(self):
         """Tag trong camera = (1.10, -0.03, -180°)."""
-        self.assertPoseClose(
-            virtual_camera(A_IN_W, C_IN_A, T_IN_W), pose(1.10, -0.03, -np.pi)
-        )
+        self.assertPoseClose(virtual_camera(A_IN_W, C_IN_A, T_IN_W), pose(1.10, -0.03, -np.pi))
 
     def test_G01_3_female_in_W(self):
         """Female trong W = (0, 0, 180°)."""
@@ -131,9 +125,7 @@ class TestFixture1(PoseTestCase):
     def test_G01_4_female_in_A(self):
         """Female trong A = (1.20, 0, 180°), chỉ dùng số đo camera."""
         T_in_C = virtual_camera(A_IN_W, C_IN_A, T_IN_W)
-        self.assertPoseClose(
-            estimate_female(T_in_C, C_IN_A, F_IN_T), pose(1.20, 0.00, np.pi)
-        )
+        self.assertPoseClose(estimate_female(T_in_C, C_IN_A, F_IN_T), pose(1.20, 0.00, np.pi))
 
     def test_G01_5_standby_in_W(self):
         """Standby trong W = (-0.30, 0, 0°)."""
@@ -263,7 +255,9 @@ class TestInvariance(PoseTestCase):
         for A_in_W in [A_IN_W, A_OFF_AXIS_IN_W, pose(-0.60, -0.40, d(-40))]:
             for name, (C_in_A, F_in_T) in LAYOUTS.items():
                 with self.subTest(A=fmt(A_in_W), layout=name):
-                    T_in_W = compose(F_IN_W, inverse(F_in_T))  # đặt tag sao cho female giữ nguyên chỗ
+                    T_in_W = compose(
+                        F_IN_W, inverse(F_in_T)
+                    )  # đặt tag sao cho female giữ nguyên chỗ
                     G_in_A = standby_seen_by_controller(A_in_W, T_in_W, C_in_A, F_in_T)
                     # đổi sang W bằng pose thật của A chỉ để chấm điểm, không đưa ngược vào controller
                     self.assertPoseClose(compose(A_in_W, G_in_A), G_true_in_W)
@@ -402,8 +396,13 @@ class TestController(unittest.TestCase):
 
     def test_mirror_symmetry(self):
         """Lật gương trái <-> phải: v giữ nguyên, ω đổi dấu, cùng trạng thái."""
-        for G in [pose(0.5, 0.1, 0), pose(0.4, -0.2, 0.5), pose(0.3, 0.05, -0.8),
-                  pose(0.003, 0.002, 0.3), pose(-0.3, 0.1, 0)]:
+        for G in [
+            pose(0.5, 0.1, 0),
+            pose(0.4, -0.2, 0.5),
+            pose(0.3, 0.05, -0.8),
+            pose(0.003, 0.002, 0.3),
+            pose(-0.3, 0.1, 0),
+        ]:
             with self.subTest(G=fmt(G)):
                 out, mirrored = controller_step(G), controller_step(pose(G[0], -G[1], -G[2]))
                 self.assertEqual(out.status, mirrored.status)
@@ -412,7 +411,12 @@ class TestController(unittest.TestCase):
 
     def test_controller_output_is_clamped_keeping_curve(self):
         """Lệnh RA KHỎI controller: không vượt giới hạn và vẫn giữ tỉ v/ω của lệnh gốc."""
-        for G in [pose(0.5, 0.1, 0), pose(0.5, 0.0, d(30)), pose(0.8, 0.6, d(-40)), pose(0.3, -0.4, d(60))]:
+        for G in [
+            pose(0.5, 0.1, 0),
+            pose(0.5, 0.0, d(30)),
+            pose(0.8, 0.6, d(-40)),
+            pose(0.3, -0.4, d(60)),
+        ]:
             with self.subTest(G=fmt(G)):
                 out = controller_step(G)
                 self.assertLessEqual(abs(out.v), CFG.v_max + TOL)
@@ -466,7 +470,9 @@ class TestDocking(unittest.TestCase):
 
     def test_C04_half_dt(self):
         """C04: dt giảm một nửa -> quỹ đạo gần như trùng (so vị trí ở cùng thời điểm)."""
-        runs = {dt: dock_sim.simulate_docking(dock_sim.POSE_A_START_IN_W, dt=dt) for dt in (0.02, 0.01)}
+        runs = {
+            dt: dock_sim.simulate_docking(dock_sim.POSE_A_START_IN_W, dt=dt) for dt in (0.02, 0.01)
+        }
         for dt, run in runs.items():
             with self.subTest(dt=dt):
                 self.assertDocked(run)
