@@ -70,7 +70,7 @@ def deg_to_ticks(degrees: float, motor_id: int, motor_info: dict) -> int:
     ticks_offset = (degrees / 360.0) * 4096
     target_ticks = int(home_steps + ticks_offset)
     
-    # ✅ CLAMP to valid motor range FIRST (before wrap-around)
+    # CLAMP to valid motor range FIRST (before wrap-around)
     if min_steps <= max_steps:
         # Normal case: motor 4, 5, 6
         target_ticks = max(min_steps, min(max_steps, target_ticks))
@@ -106,7 +106,7 @@ def ticks_to_deg(ticks: int, motor_id: int, motor_info: dict) -> float:
     min_steps = info["min_steps"]
     max_steps = info["max_steps"]
     
-    # ✅ FIX: Xử lý wrap-around đúng cho motor 8
+    # FIX: Xử lý wrap-around đúng cho motor 8
     # Motor 8: min_steps=4, max_steps=3993 (wrap-around)
     # Valid range: [4, 3993] hoặc wrap qua 0 → [4, 65535]
     
@@ -314,7 +314,7 @@ def test_simple_gait():
                     "leg_hip_right": {"degrees": -15, "speed": 800, "accel": 50},
                     "leg_twist_right": {"degrees": 0, "speed": 800, "accel": 50},
                     "leg_knee_right": {"degrees": 15, "speed": 800, "accel": 50},
-                    "leg_foot_right": {"degrees": -15, "speed": 800, "accel": 50},  # ✅ Very low speed/accel for foot motor
+                    "leg_foot_right": {"degrees": -15, "speed": 800, "accel": 50},  # Very low speed/accel for foot motor
                 },
                 "duration": 1.0,
             },
@@ -325,7 +325,7 @@ def test_simple_gait():
                     "leg_hip_right": {"degrees": 5, "speed": 800, "accel": 50},
                     "leg_twist_right": {"degrees": 0, "speed": 800, "accel": 50},
                     "leg_knee_right": {"degrees": -5, "speed": 800, "accel": 50},
-                    "leg_foot_right": {"degrees": 5, "speed": 800, "accel": 50},  # ✅ Very low speed/accel for foot motor
+                    "leg_foot_right": {"degrees": 5, "speed": 800, "accel": 50},  # Very low speed/accel for foot motor
                 },
                 "duration": 1.0,
             },
@@ -336,7 +336,7 @@ def test_simple_gait():
                     "leg_hip_right": {"degrees": -15, "speed": 800, "accel": 50},
                     "leg_twist_right": {"degrees": 0, "speed": 800, "accel": 50},
                     "leg_knee_right": {"degrees": 15, "speed": 800, "accel": 50},
-                    "leg_foot_right": {"degrees": -15, "speed": 800, "accel": 50},  # ✅ Very low speed/accel for foot motor
+                    "leg_foot_right": {"degrees": -15, "speed": 800, "accel": 50},  # Very low speed/accel for foot motor
                 },
                 "duration": 1.0,
             },
@@ -347,7 +347,7 @@ def test_simple_gait():
                     "leg_hip_right": {"degrees": 5, "speed": 800, "accel": 50},
                     "leg_twist_right": {"degrees": 0, "speed": 800, "accel": 50},
                     "leg_knee_right": {"degrees": -5, "speed": 800, "accel": 50},
-                    "leg_foot_right": {"degrees": 5, "speed": 800, "accel": 50},  # ✅ Very low speed/accel for foot motor
+                    "leg_foot_right": {"degrees": 5, "speed": 800, "accel": 50},  # Very low speed/accel for foot motor
                 },
                 "duration": 1.0,
             },
@@ -358,7 +358,7 @@ def test_simple_gait():
                     "leg_hip_right": {"degrees": 0, "speed": 800, "accel": 50},
                     "leg_twist_right": {"degrees": 0, "speed": 800, "accel": 50},
                     "leg_knee_right": {"degrees": 0, "speed": 800, "accel": 50},
-                    "leg_foot_right": {"degrees": 0, "speed": 800, "accel": 50},  # ✅ Very low speed/accel for foot motor
+                    "leg_foot_right": {"degrees": 0, "speed": 800, "accel": 50},  # Very low speed/accel for foot motor
                 },
                 "duration": 1.0,
             },
@@ -379,19 +379,19 @@ def test_simple_gait():
                     speed = motor_config["speed"]
                     accel = motor_config["accel"]
                     
-                    # ✅ Clamp to motor limits (in degrees)
+                    # Clamp to motor limits (in degrees)
                     clamped_degrees = clamp_to_limits(target_degrees, motor_id, motor_info)
                     
-                    # ✅ Convert degrees → ticks
+                    # Convert degrees → ticks
                     target_ticks = deg_to_ticks(clamped_degrees, motor_id, motor_info)
                     
-                    # ✅ Verify conversion (ticks → degrees back)
+                    # Verify conversion (ticks → degrees back)
                     verify_degrees = ticks_to_deg(target_ticks, motor_id, motor_info)
                     
                     # Debug output
                     print(f"      {motor_name}: {target_degrees:6.2f}° → ticks={target_ticks:5d} (speed={speed}, acc={accel})")
                     
-                    # ✅ Send to motor (raw ticks, not normalized)
+                    # Send to motor (raw ticks, not normalized)
                     robot.write_pos_ex(
                         motor_name,
                         position=target_ticks,
@@ -406,7 +406,7 @@ def test_simple_gait():
                 
                 # STEP 3 (Optional): Check final positions
                 # positions = robot.read_leg_positions(normalize=False)
-                # print(f"    ✓ Phase complete\n")
+                # print(f" Phase complete\n")
             
             print()
         

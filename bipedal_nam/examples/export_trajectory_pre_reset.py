@@ -67,7 +67,7 @@ def main(env_cfg, agent_cfg):
     
     dt = env.unwrapped.step_dt
     
-    # ✅ THÊM: Container lưu trajectory PRE-RESET
+    # THÊM: Container lưu trajectory PRE-RESET
     trajectory_pre_reset = []
     
     print(f"\n{'='*80}")
@@ -101,7 +101,7 @@ def main(env_cfg, agent_cfg):
                 # Raw policy actions
                 raw_actions = actions[0].cpu().numpy().tolist()
                 
-                # ✅ THÊM: Lưu step vào episode trajectory
+                # THÊM: Lưu step vào episode trajectory
                 step_record = {
                     "step": step_count,
                     "time_s": step_count * dt,
@@ -119,18 +119,18 @@ def main(env_cfg, agent_cfg):
                 }
                 episode_trajectory.append(step_record)
                 
-                # ✅ THÊM: Detect RESET (done=True)
+                # THÊM: Detect RESET (done=True)
                 obs, _, dones, _ = env.step(actions)
                 policy_nn.reset(dones)
                 
                 step_count += 1
                 
-                # ✅ THÊM: Check if episode ended
+                # THÊM: Check if episode ended
                 if dones[0]:
                     print(f"  ✓ Episode ended at step {step_count}")
                     break
         
-        # ✅ THÊM: Nếu episode có data, thêm vào trajectory chính
+        # THÊM: Nếu episode có data, thêm vào trajectory chính
         if episode_trajectory:
             # Cập nhật time_s để continuous
             start_time_s = len(trajectory_pre_reset) * dt
@@ -143,7 +143,7 @@ def main(env_cfg, agent_cfg):
         
         episode_count += 1
     
-    # ✅ THÊM: Lưu trajectory PRE-RESET
+    # THÊM: Lưu trajectory PRE-RESET
     os.makedirs(args_cli.output_dir, exist_ok=True)
     
     output_data = {

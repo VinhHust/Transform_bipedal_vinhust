@@ -59,14 +59,16 @@ def main():
         )
         print("✅ IMU Fusion API initialized successfully")
         
-        # ✅ THÊM: Print rotation matrices để verify
+        # Print phep xoay lap dat de verify.
+        # Phan cung moi: 2 con lap SONG SONG -> chi con MOT phep xoay chung,
+        # khong con left_rot/right_rot rieng nhu ban lap cu.
         print("\n" + "="*80)
-        print("ROTATION MATRICES (IMU → Baselink)")
+        print("MOUNT ROTATION (IMU → Baselink) - dung chung cho ca 2 con")
         print("="*80)
-        print("\nLEFT IMU (Rz(-90°)):")
-        print(imu_fusion.left_rot)
-        print("\nRIGHT IMU (Rz(+90°)):")
-        print(imu_fusion.right_rot)
+        print(f"\nmount_rpy_deg = {imu_fusion.mount_rpy_deg}")
+        print("\nR_mount:")
+        print(imu_fusion.R_mount)
+        print(f"\nq_mount = {[round(x, 6) for x in imu_fusion.q_mount]}")
         print("\n" + "="*80 + "\n")
         
     except Exception as e:

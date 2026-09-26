@@ -44,7 +44,7 @@ def replay_first_steps_with_imu_log(robot: TransformerAPI, motion_data: dict,
     
     num_steps = min(num_steps, len(steps))
     
-    # ✅ THÊM: Prepare logging
+    # THÊM: Prepare logging
     if log_file is None:
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         log_file = f"/home/nam/Transform_Bipedal/imu_logs/replay_{timestamp}.csv"
@@ -86,7 +86,7 @@ def replay_first_steps_with_imu_log(robot: TransformerAPI, motion_data: dict,
             knee_l, knee_r = angles[2], angles[3]
             ankle_l, ankle_r = angles[4], angles[5]
             
-            # ✅ NEW: Get real-time IMU from robot
+            # NEW: Get real-time IMU from robot
             state = robot.get_state_with_retry(max_retries=1)
             
             if state:
@@ -106,7 +106,7 @@ def replay_first_steps_with_imu_log(robot: TransformerAPI, motion_data: dict,
                 print(f"  ❌ Step {idx}: Failed to apply joint angles")
                 break
             
-            # ✅ THÊM: Log IMU data to memory
+            # THÊM: Log IMU data to memory
             imu_log.append({
                 "step": idx,
                 "time_s": t_sim,
@@ -130,12 +130,12 @@ def replay_first_steps_with_imu_log(robot: TransformerAPI, motion_data: dict,
                       f"IMU: pitch={pitch:+.4f}rad gx={gyro[0]:+.4f}rad/s | "
                       f"Sync: {sync_error:+6.1f}ms")
         
-        # ✅ THÊM: Write IMU log to CSV
+        # THÊM: Write IMU log to CSV
         print(f"\n📝 Writing IMU data to CSV...")
         _write_imu_csv(log_path, imu_log)
         print(f"✅ IMU log saved: {log_file}")
         
-        # ✅ THÊM: Print statistics
+        # THÊM: Print statistics
         print(f"\n📊 IMU STATISTICS:")
         _print_imu_statistics(imu_log)
         
@@ -227,7 +227,7 @@ def main():
     replay_first_steps_with_imu_log(
         robot, 
         motion_data, 
-        num_steps=300,     # ✅ 300 steps = 6 seconds (50Hz)
+        num_steps=300,     # 300 steps = 6 seconds (50Hz)
         speed_factor=0.85,
         log_file=None      # Auto-generate filename
     )

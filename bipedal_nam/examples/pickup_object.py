@@ -93,7 +93,7 @@ def move_motor(robot, motor_name: str, target_pos: int, speed: int = 150,
         start_time = time.time()
         reached = False
         
-        # ✅ LOOP: Kiểm tra position liên tục
+        # LOOP: Kiểm tra position liên tục
         while time.time() - start_time < timeout:
             current = robot.bus.read("Present_Position", motor_name, normalize=False)
             error = abs(current - target_pos)
