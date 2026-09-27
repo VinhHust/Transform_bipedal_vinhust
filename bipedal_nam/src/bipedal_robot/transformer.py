@@ -67,6 +67,17 @@ class TransformerAPI:
         self.sockets_req = {}  # ← {leg: socket}
         self.sockets_push = {}  # ← {leg: socket}
 
+        # ===== Sổ ghi mode (CAR/BIPEDAL) =====
+
+        self.mode = (
+            None  # "BIPEDAL"/"CAR" khi CẢ 2 Pi cùng mode; None = chưa đổi hoặc 2 Pi lệch nhau
+        )
+        self.leg_modes = {"left": None, "right": None}  # mode từng Pi báo về
+        self.sessions = {"left": None, "right": None}  # vé Pi phát khi set_mode thành công
+        self.mode_errors = {}  # {leg: lý do} của lần set_mode gần nhất
+        self.drive_seq = {"left": 0, "right": 0}  # số thứ tự lệnh drive, chỉ tăng
+        self.req_timeout_ms = 5000  # thời gian chờ trả lời REQ
+
         # IMU Fusion module
         self.imu_fusion = None
 
@@ -167,6 +178,40 @@ class TransformerAPI:
 
         logger.info(f"IMU background thread stopped ({valid_count}/{sample_count} valid)")
 
+    def _open_req(self, leg: str) -> None:
+        old = self.sockets_req.get(leg)
+        if old is not None:
+            old.close(linger=0)  # bỏ luôn câu hỏi đang treo trong socket cũ
+
+        host = self.left_host if leg == "left" else self.right_host
+        port = self.left_port if leg == "left" else self.right_port
+
+        socket = self.req_context.socket(zmq.REQ)
+        socket.setsockopt(zmq.RCVTIMEO, self.req_timeout_ms)
+        socket.setsockopt(zmq.LINGER, 0)
+        socket.connect(f"tcp://{host}:{port}")
+        self.sockets_req[leg] = socket
+
+    def _request(self, leg: str, message: dict) -> Optional[Dict]:
+        """Gửi 1 câu hỏi REQ, chờ 1 câu trả lời.
+
+        Lỗi hoặc timeout -> thay socket mới (để lần sau hỏi được) và trả None.
+        """
+        if leg not in self.sockets_req:
+            logger.error(f"❌ No REQ socket for {leg}")
+            return None
+        try:
+            self.sockets_req[leg].send_json(message)
+            return self.sockets_req[leg].recv_json()
+        except zmq.Again:
+            logger.error(f"❌ REQ timeout from {leg} ({message.get('type')})")
+            self._open_req(leg)
+            return None
+        except Exception as e:
+            logger.error(f"REQ error from {leg} ({message.get('type')}): {e}")
+            self._open_req(leg)
+            return None
+
     def initialize(self, warmup_time: float = 5.0) -> bool:
         """Initialize with 2 socket types"""
         logger.info("=" * 80)
@@ -178,14 +223,9 @@ class TransformerAPI:
             logger.info("\nConnecting REQ/REP sockets (data)...")
             self.req_context = zmq.Context()
             for leg in ["left", "right"]:
-                socket = self.req_context.socket(zmq.REQ)
-                socket.setsockopt(zmq.RCVTIMEO, 5000)  # 5s timeout
-
+                self._open_req(leg)
                 host = self.left_host if leg == "left" else self.right_host
                 port = self.left_port if leg == "left" else self.right_port
-
-                socket.connect(f"tcp://{host}:{port}")
-                self.sockets_req[leg] = socket
                 logger.info(f"✓ REQ socket connected to {leg} ({host}:{port})")
 
             # Initialize PUSH/PULL (control commands)
@@ -208,6 +248,7 @@ class TransformerAPI:
                 # Import tai day de imu_pubsub.py chi duoc nap khi bat co,
                 # giu duong cu (imu.py) hoan toan khong bi anh huong.
                 from bipedal_robot.sensors.imu_pubsub import IMUFusion as _Fusion
+
                 logger.info("IMU transport: PUB/SUB (imu_pubsub.py, khong chan)")
             else:
                 _Fusion = IMUFusion
@@ -330,7 +371,16 @@ class TransformerAPI:
                 return False
 
             socket = self.sockets_push[leg]
-            socket.send_json({"type": "move", "positions": positions})
+
+            # Pi đang ở CAR -> chân làm tay gắp -> "arm_move"; còn lại (BIPEDAL/chưa đổi) -> "move"
+            cmd_type = "arm_move" if self.leg_modes[leg] == "CAR" else "move"
+            message = {"type": cmd_type, "positions": positions}
+
+            # Có vé thì kẹp vé. Chưa đổi mode lần nào (vé None) -> gửi y như code cũ
+            if self.sessions[leg] is not None:
+                message["session"] = self.sessions[leg]
+            socket.send_json(message)
+
             logger.debug(f"✓ PUSH control sent to {leg}: {positions}")
             return True
 
@@ -683,10 +733,95 @@ class TransformerAPI:
             logger.error(f"Error getting state: {e}")
             return None
 
+        # ======== Mode CAR/BIPEDAL ========
+
+    def set_mode(self, mode: str) -> bool:
+        """Đổi mode cả 2 Pi ("CAR" hoặc "BIPEDAL"). Chỉ True khi CẢ 2 Pi báo success.
+
+        Pi nào lỗi -> ghi lý do vào self.mode_errors[leg], bảo cả 2 dừng bánh, trả False.
+        """
+        mode = str(mode).upper()
+        self.mode_errors = {}
+
+        for leg in ["left", "right"]:
+            reply = self._request(leg, {"type": "set_mode", "mode": mode})
+            if reply is None:
+                self.mode_errors[leg] = "Không trả lời (timeout/lỗi mạng)"
+            elif reply.get("status") != "success":
+                self.mode_errors[leg] = reply.get("message", "không rõ lý do")
+            else:
+                self.leg_modes[leg] = reply.get("mode")
+                self.sessions[leg] = reply.get("session")
+
+        if self.mode_errors:
+            self.mode = None  # 2 Pi có thể đang lệch mode nhau
+            logger.error(f"❌ set_mode {mode} lỗi: {self.mode_errors}")
+            self.stop_base()
+            return False
+
+        self.mode = mode
+        logger.info(f"✅ Mode -> {mode} | vé: {self.sessions}")
+        return True
+
+    def set_base_velocity(self, leg: str, v: float, omega: float) -> bool:
+        """Lái bánh của MỘT module. Gọi liên tục (20–50 Hz).
+
+        v: m/s, + = tiến (phía mũi dock). omega: rad/s, + = quay trái.
+        Server tự giới hạn tốc độ + ramp; ngừng gửi > 0.25 s thì bánh tự dừng.
+        """
+        if self.leg_modes.get(leg) != "CAR" or self.sessions.get(leg) is None:
+            logger.warning(f"⚠️  {leg} chưa ở CAR -> gọi set_mode('CAR') trước")
+            return False
+
+        self.drive_seq[leg] += 1
+        message = {
+            "type": "drive",
+            "v": float(v),
+            "omega": float(omega),
+            "session": self.sessions[leg],
+            "seq": self.drive_seq[leg],
+        }
+        try:
+            # NOBLOCK: Pi mất kết nối -> hàng đợi đầy -> bỏ lệnh chứ không treo vòng lái
+            self.sockets_push[leg].send_json(message, flags=zmq.NOBLOCK)
+            return True
+        except zmq.Again:
+            logger.warning(f"⚠️  {leg}: hàng đợi PUSH đầy (Pi mất kết nối?) -> bỏ lệnh drive")
+            return False
+        except Exception as e:
+            logger.error(f"Error sending drive to {leg}: {e}")
+            return False
+
+    def stop_base(self, leg: Optional[str] = None) -> bool:
+        """Phanh gấp: bánh về 0 NGAY và khoá lái. Muốn lái lại phải set_mode("CAR").
+
+        leg=None -> dừng cả 2 module. Mode nào gọi cũng được, không cần vé.
+        """
+        legs = [leg] if leg else ["left", "right"]
+        ok = True
+        for name in legs:
+            reply = self._request(name, {"type": "stop_drive"})
+            if reply is None or reply.get("status") != "success":
+                logger.error(f"❌ {name}: dừng bánh lỗi: {reply}")
+                ok = False
+        return ok
+
+    def get_base_state(self, leg: str) -> Optional[Dict]:
+        """Đồng hồ xe của một module: mode, target/current bánh, tốc độ đo được.
+
+        Trả None nếu không hỏi được. Trong kết quả, "measured" = None nghĩa là
+        server đọc bánh lỗi, KHÔNG có nghĩa là xe đang đứng yên.
+        """
+        reply = self._request(leg, {"type": "base_feedback"})
+        if reply is None or reply.get("status") != "success":
+            return None
+        return reply
+
     def shutdown(self) -> None:
         """Shutdown API"""
         logger.info("Shutting down TransformerAPI...")
-
+        if "CAR" in self.leg_modes.values():
+            self.stop_base()
         # THÊM: Stop IMU thread
         self.imu_running = False
         if self.imu_thread:
