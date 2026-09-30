@@ -9,5 +9,5 @@
   "max_v_m_s": 0.1,
   "max_omega_rad_s": 0.5,
   "max_wheel_accel_rad_s2": 4.0,
-  "command_timeout_s": 0.25
+  "command_timeout_s": 1.0
 }
