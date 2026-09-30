@@ -22,6 +22,7 @@ STOP_WAIT_S = 1.0  # CAR -> BIPEDAL: chờ bánh dừng hẳn tối đa bao lâu
 STOP_TOL_RAW = 20  # |Present_Velocity| từ mức này trở xuống coi như đã dừng
 
 
+# RobotMode dùng để chuyển mode, import vào leg_server
 class RobotMode(str, Enum):
     BIPEDAL = "BIPEDAL"
     CAR = "CAR"
