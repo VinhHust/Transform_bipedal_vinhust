@@ -689,6 +689,7 @@ class MCUServer:
             elif cmd_type == "stop_drive":
                 return self.mode_ctrl.stop_drive()
 
+            # feedback về cho UI biết đang ở mode nào
             elif cmd_type == "base_feedback":
                 return self.mode_ctrl.feedback()
 
