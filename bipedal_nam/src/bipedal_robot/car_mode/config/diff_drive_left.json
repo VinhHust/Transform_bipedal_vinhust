@@ -1,0 +1,13 @@
+{
+  "wheel_radius_m": 0.05,
+  "wheel_separation_m": 0.24145,
+  "left_direction": 1,
+  "right_direction": 1,
+  "motor_to_wheel_ratio": 1.0,
+  "motor_steps_per_rev": 4096,
+  "max_raw": 1500,
+  "max_v_m_s": 0.1,
+  "max_omega_rad_s": 0.5,
+  "max_wheel_accel_rad_s2": 4.0,
+  "command_timeout_s": 0.25
+}

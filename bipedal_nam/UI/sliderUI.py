@@ -10,8 +10,10 @@ Giao diện thanh trượt điều khiển 12 động cơ (2 chân) qua ZeroMQ.
 """
 
 import ast
+import json
 import math
 import queue
+import sys
 import threading
 import time
 import tkinter as tk
@@ -38,8 +40,16 @@ def _find_src_dir(start: Path) -> Path:
 
 SRC_DIR = _find_src_dir(Path(__file__).resolve().parent)
 
+# Toán xe vi sai dùng chung với server (import car_mode không kéo theo lerobot).
+# Thiếu thì UI vẫn chạy phần khớp, chỉ tắt khung Xe.
+sys.path.insert(0, str(SRC_DIR.parent))
+try:
+    from bipedal_robot.car_mode import diff_drive
+except Exception:
+    diff_drive = None
+
 LEGS = [
-    {"side": "LEFT", "host": "mobile2.local", "port": 5556, "src": "leg_server_left.py"},
+    # {"side": "LEFT", "host": "mobile2.local", "port": 5556, "src": "leg_server_left.py"},
     {"side": "RIGHT", "host": "mobile1.local", "port": 5555, "src": "leg_server_right.py"},
 ]
 
@@ -53,6 +63,8 @@ SEND_HZ = 20  # tần suất tối đa gửi lệnh move khi đang kéo
 POLL_S = 0.01  # chu kỳ đọc feedback -> ~67Hz thực tế
 VIEW_HZ = 30  # tần suất vẽ lại panel 3D
 TICKS_PER_REV = 4096
+# base_feedback ~5 Hz: mỗi lần hỏi Pi phải đọc serial 2 bánh, chiếm bus của chân
+BASE_POLL_S = 0.2
 
 # Tốc độ dùng riêng cho nút Home - luôn chậm, không phụ thuộc ô nhập
 HOME_SPEED = 700
@@ -66,9 +78,9 @@ def ticks_to_deg(ticks):
     return ticks / TICKS_PER_REV * 360.0
 
 
-def parse_servo_limits(py_file: Path):
+def parse_servo_limits(py_file: Path, name: str = "servo_limits"):
     """
-    Đọc servo_limits trực tiếp từ file server bằng AST.
+    Đọc bảng giới hạn (servo_limits / servo_limits_car) trực tiếp từ file server bằng AST.
     Tránh phải chép tay -> không bao giờ lệch với bản đang chạy.
     """
     tree = ast.parse(py_file.read_text(encoding="utf-8"))
@@ -76,10 +88,10 @@ def parse_servo_limits(py_file: Path):
         if not isinstance(node, ast.Assign):
             continue
         for target in node.targets:
-            if isinstance(target, ast.Attribute) and target.attr == "servo_limits":
+            if isinstance(target, ast.Attribute) and target.attr == name:
                 raw = ast.literal_eval(node.value)
                 return {int(k): (int(v["min"]), int(v["max"])) for k, v in raw.items()}
-    raise ValueError(f"Không tìm thấy servo_limits trong {py_file}")
+    raise ValueError(f"Không tìm thấy {name} trong {py_file}")
 
 
 def _const_int_list(node):
@@ -109,6 +121,23 @@ def parse_home_pos(py_file: Path):
             if isinstance(target, ast.Name) and target.id == "home_pos":
                 return _const_int_list(node.value)
     return None
+
+
+CAR_CFG_DIR = SRC_DIR.parent / "bipedal_robot" / "car_mode" / "config"
+
+
+def load_transition(side: str):
+    """Sequence về transition pose (car_mode/config/transition_<side>.json). Không có file -> None.
+
+    Mỗi bước là {khớp: đích}; các khớp trong cùng 1 bước chạy cùng lúc.
+    """
+    path = CAR_CFG_DIR / f"transition_{side.lower()}.json"
+    if not path.exists():
+        return None
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    for seq in raw.values():
+        seq["steps"] = [{int(k): int(v) for k, v in step.items()} for step in seq["steps"]]
+    return raw
 
 
 HOME_POS = {}
@@ -206,12 +235,7 @@ class OrientationView(tk.Canvas):
     LIGHT = (0.35, 0.30, 0.89)  # hướng nguồn sáng
 
     # 8 đỉnh hộp: bit 0=X, 1=Y, 2=Z
-    CORNERS = [
-        (sx * 1.0, sy * 1.0, sz * 1.0)
-        for sz in (-1, 1)
-        for sy in (-1, 1)
-        for sx in (-1, 1)
-    ]
+    CORNERS = [(sx * 1.0, sy * 1.0, sz * 1.0) for sz in (-1, 1) for sy in (-1, 1) for sx in (-1, 1)]
     # mỗi mặt: (4 chỉ số đỉnh, pháp tuyến, màu nền)
     FACES = [
         ((4, 5, 7, 6), (0, 0, 1), (90, 150, 220)),  # trên
@@ -223,9 +247,7 @@ class OrientationView(tk.Canvas):
     ]
 
     def __init__(self, master, title):
-        super().__init__(
-            master, width=self.W, height=self.H, bg="#15171c", highlightthickness=0
-        )
+        super().__init__(master, width=self.W, height=self.H, bg="#15171c", highlightthickness=0)
         self.title = title
         self.scale = min(self.W, self.H) * 0.30
         self._last = None
@@ -236,9 +258,9 @@ class OrientationView(tk.Canvas):
     def _proj(self, v):
         x, y, z = v
         sx = -x * math.sin(self.AZ) + y * math.cos(self.AZ)
-        sy = -(x * math.cos(self.AZ) + y * math.sin(self.AZ)) * math.sin(
+        sy = -(x * math.cos(self.AZ) + y * math.sin(self.AZ)) * math.sin(self.EL) + z * math.cos(
             self.EL
-        ) + z * math.cos(self.EL)
+        )
         return self.W / 2 + sx * self.scale, self.H / 2 + 8 - sy * self.scale
 
     def _depth(self, v):
@@ -286,9 +308,7 @@ class OrientationView(tk.Canvas):
             )
 
         if quat is None:
-            self.create_text(
-                self.W / 2, self.H / 2, text="chưa có dữ liệu", fill="#666"
-            )
+            self.create_text(self.W / 2, self.H / 2, text="chưa có dữ liệu", fill="#666")
             return
 
         R = q_to_matrix(quat)
@@ -296,9 +316,7 @@ class OrientationView(tk.Canvas):
         def rot(v):
             return [sum(R[i][j] * v[j] for j in range(3)) for i in range(3)]
 
-        verts = [
-            rot((x * self.HX, y * self.HY, z * self.HZ)) for x, y, z in self.CORNERS
-        ]
+        verts = [rot((x * self.HX, y * self.HY, z * self.HZ)) for x, y, z in self.CORNERS]
 
         # sắp mặt từ xa tới gần rồi tô đè lên nhau
         faces = []
@@ -307,9 +325,7 @@ class OrientationView(tk.Canvas):
             centroid = [sum(p[i] for p in pts) / 4 for i in range(3)]
             n = rot(normal)
             lit = max(0.0, sum(n[i] * self.LIGHT[i] for i in range(3)))
-            faces.append(
-                (self._depth(centroid), pts, self._shade(rgb, 0.40 + 0.75 * lit))
-            )
+            faces.append((self._depth(centroid), pts, self._shade(rgb, 0.40 + 0.75 * lit)))
 
         for _, pts, color in sorted(faces, key=lambda f: f[0]):
             flat = [c for p in pts for c in self._proj(p)]
@@ -340,6 +356,7 @@ class FeedbackPoller(threading.Thread):
         super().__init__(daemon=True)
         self.host, self.port, self.out_q, self.side = host, port, out_q, side
         self.running = True
+        self.want_base = False  # panel bật khi ở CAR -> hỏi thêm base_feedback
 
     def _new_socket(self):
         sock = ctx.socket(zmq.REQ)
@@ -350,11 +367,16 @@ class FeedbackPoller(threading.Thread):
 
     def run(self):
         sock = self._new_socket()
+        last_base = 0.0
         while self.running:
             try:
                 sock.send_json({"type": "feedback"})
                 resp = sock.recv_json()
                 self.out_q.put((self.side, "ok", resp))  # cả dict: servo_pos + quat
+                if self.want_base and time.time() - last_base >= BASE_POLL_S:
+                    last_base = time.time()
+                    sock.send_json({"type": "base_feedback"})
+                    self.out_q.put((self.side, "base", sock.recv_json()))
             except Exception as exc:
                 self.out_q.put((self.side, "err", str(exc)))
                 sock.close()  # REQ hỏng lockstep sau timeout -> phải tạo lại
@@ -369,11 +391,36 @@ class LegPanel(ttk.LabelFrame):
     def __init__(self, master, cfg, status_q):
         self.side = cfg["side"]
         self.host, self.port = cfg["host"], cfg["port"]
-        super().__init__(
-            master, text=f"{self.side}  —  {self.host}:{self.port}", padding=8
-        )
+        super().__init__(master, text=f"{self.side}  —  {self.host}:{self.port}", padding=8)
 
-        self.limits = parse_servo_limits(SRC_DIR / cfg["src"])
+        self.limits_bip = parse_servo_limits(SRC_DIR / cfg["src"])
+        try:
+            self.limits_car = parse_servo_limits(SRC_DIR / cfg["src"], "servo_limits_car")
+        except ValueError:
+            self.limits_car = self.limits_bip  # server chưa có bảng CAR (chân trái) -> dùng chung
+        self.limits = self.limits_bip  # bảng đang dùng, đổi theo mode
+        # Vùng chuyển mode của bub = giao 2 bảng (giống transition_range bên server)
+        self.trans_lo = max(self.limits_bip[4][0], self.limits_car[4][0])
+        self.trans_hi = min(self.limits_bip[4][1], self.limits_car[4][1])
+        self.mode = None  # None = chưa biết server đang ở mode nào
+        self.session = None  # vé; None = chưa có -> khoá gửi lệnh
+        self.scales = {}
+        self.range_lbl = {}
+        # Xe: v/ω cho cả xe, server tự chia ra 2 bánh. Giới hạn đọc từ car_mode/config/*.json
+        self.car_cfg = None
+        if diff_drive is not None:
+            try:
+                self.car_cfg = diff_drive.load_config(self.side.lower())
+            except Exception:
+                pass
+        self.drive_on = tk.BooleanVar(value=False)
+        self.seq = 0  # số thứ tự lệnh drive; vé mới -> đếm lại (server đặt last_seq = -1)
+        self.run_until = None  # "Chạy N giây": thời điểm tự đưa v/ω về 0
+        self.transition = load_transition(self.side)
+        self.last_pos = None  # vị trí ĐO mới nhất (6 khớp), sequence dựa vào đây để biết đã tới chưa
+        self.seq_idx = None  # bước đang chạy; None = không chạy sequence
+        self.seq_job = None  # id của self.after đang chờ kiểm tra bước
+        self.seq_deadline = 0.0
         self.vars = {}
         self.entry_vars = {}  # chuỗi đang hiện trong ô nhập, tách khỏi self.vars
         self.entries = {}
@@ -402,9 +449,11 @@ class LegPanel(ttk.LabelFrame):
 
         self._build_rows()
         self._build_controls()
+        self._build_car()
 
         self.poller = FeedbackPoller(self.host, self.port, status_q, self.side)
         self.poller.start()
+        self.after(500, self.claim_session)
 
     def _build_rows(self):
         for row, mid in enumerate(sorted(JOINTS)):
@@ -416,9 +465,7 @@ class LegPanel(ttk.LabelFrame):
             if span < 50:
                 name += " 🔒"
 
-            ttk.Label(self, text=name, width=11).grid(
-                row=row, column=0, sticky="w", pady=2
-            )
+            ttk.Label(self, text=name, width=11).grid(row=row, column=0, sticky="w", pady=2)
 
             var = tk.IntVar(value=lo)
             self.vars[mid] = var
@@ -435,6 +482,7 @@ class LegPanel(ttk.LabelFrame):
                 state="normal" if span >= 50 else "disabled",
             )
             scale.grid(row=row, column=1, padx=4)
+            self.scales[mid] = scale
 
             # Ô nhập tick, dùng song song với thanh trượt: gõ số rồi Enter là chốt.
             # KHÔNG gắn thẳng IntVar vào Entry, vì hai lý do:
@@ -461,26 +509,53 @@ class LegPanel(ttk.LabelFrame):
             entry.bind("<FocusOut>", lambda _e, m=mid: self._commit_entry(m))
             entry.bind("<Escape>", lambda _e, m=mid: self._mirror_entry(m, force=True))
 
-            ttk.Label(self, text=f"[{lo}–{hi}]", width=12, foreground="#888").grid(
-                row=row, column=3
-            )
+            rlbl = ttk.Label(self, text=f"[{lo}–{hi}]", width=12, foreground="#888")
+            rlbl.grid(row=row, column=3)
+            self.range_lbl[mid] = rlbl
 
             lbl = ttk.Label(self, text="thật: —", width=26, foreground="#0a6")
             lbl.grid(row=row, column=4, sticky="w")
             self.actual_lbl[mid] = lbl
 
     def _build_controls(self):
+        # Hàng mode: nhãn riêng (không dùng self.status vì on_feedback ghi đè nó ~67 lần/giây)
+        modebar = ttk.Frame(self)
+        modebar.grid(row=97, column=0, columnspan=5, sticky="we", pady=(10, 0))
+
+        # Hàng sequence: đưa tay về transition pose để được đổi mode
+        seqbar = ttk.Frame(self)
+        seqbar.grid(row=98, column=0, columnspan=5, sticky="we", pady=(4, 0))
+        self.seq_btn = ttk.Button(
+            seqbar, text="Về transition", command=self.start_transition, state="disabled"
+        )
+        self.seq_btn.pack(side="left")
+        self.seq_lbl = ttk.Label(seqbar, text="", foreground="#888")
+        self.seq_lbl.pack(side="left", padx=8)
+        self.mode_lbl = ttk.Label(modebar, text="mode: ? · chưa có vé", foreground="#c00")
+        self.mode_lbl.pack(side="left")
+        self.switch_btn = ttk.Button(
+            modebar, text="Đổi mode", command=self.switch_mode, state="disabled"
+        )
+        self.switch_btn.pack(side="left", padx=8)
+        self.zone_lbl = ttk.Label(modebar, text="", foreground="#888")
+        self.zone_lbl.pack(side="left")
+
         bar = ttk.Frame(self)
         bar.grid(row=99, column=0, columnspan=5, sticky="we", pady=(10, 0))
 
-        ttk.Checkbutton(
-            bar, text="BẬT gửi lệnh", variable=self.enabled, command=self._on_enable
-        ).pack(side="left", padx=(0, 10))
-
-        ttk.Button(bar, text="Đồng bộ", command=self.sync_from_robot).pack(
-            side="left", padx=2
+        # Chưa có vé thì chưa cho bật: gửi lệnh thiếu vé qua PUSH bị server bỏ im lặng
+        self.enable_chk = ttk.Checkbutton(
+            bar,
+            text="BẬT gửi lệnh",
+            variable=self.enabled,
+            command=self._on_enable,
+            state="disabled",
         )
-        ttk.Button(bar, text="Home", command=self.go_home).pack(side="left", padx=2)
+        self.enable_chk.pack(side="left", padx=(0, 10))
+
+        ttk.Button(bar, text="Đồng bộ", command=self.sync_from_robot).pack(side="left", padx=2)
+        self.home_btn = ttk.Button(bar, text="Home", command=self.go_home)
+        self.home_btn.pack(side="left", padx=2)
         ttk.Button(bar, text="DỪNG", command=self.stop).pack(side="left", padx=2)
 
         ttk.Label(bar, text="  speed").pack(side="left")
@@ -491,12 +566,221 @@ class LegPanel(ttk.LabelFrame):
         self.accel_var = tk.StringVar(value="50")
         ttk.Entry(bar, textvariable=self.accel_var, width=5).pack(side="left")
 
-        ttk.Button(bar, text="Áp dụng", command=self.apply_config).pack(
-            side="left", padx=4
-        )
+        ttk.Button(bar, text="Áp dụng", command=self.apply_config).pack(side="left", padx=4)
 
         self.status = ttk.Label(self, text="● chưa kết nối", foreground="#c00")
         self.status.grid(row=100, column=0, columnspan=5, sticky="w", pady=(6, 0))
+
+    def _build_car(self):
+        """Khung Xe: đặt v/ω cho cả xe; server tự chia ra 2 bánh (diff_drive.body_to_wheels)."""
+        box = ttk.LabelFrame(self, text="Xe — chỉ dùng ở CAR", padding=6)
+        box.grid(row=101, column=0, columnspan=5, sticky="we", pady=(8, 0))
+        self.car_vars, self.car_evars, self.car_entries, self.car_inputs = {}, {}, {}, []
+        if self.car_cfg is None:
+            ttk.Label(
+                box, text="Không đọc được config bánh (diff_drive_*.json)", foreground="#c00"
+            ).grid(row=0, column=0)
+            return
+
+        rows = [
+            ("v", "m/s", self.car_cfg.max_v_m_s, 0.005),
+            ("omega", "rad/s", self.car_cfg.max_omega_rad_s, 0.01),
+        ]
+        for r, (key, unit, lim, res) in enumerate(rows):
+            ttk.Label(box, text=f"{key} ({unit})", width=11).grid(row=r, column=0, sticky="w")
+            var = tk.DoubleVar(value=0.0)
+            scale = tk.Scale(
+                box,
+                from_=-lim,
+                to=lim,
+                variable=var,
+                orient="horizontal",
+                length=250,
+                showvalue=0,
+                resolution=res,
+            )
+            scale.grid(row=r, column=1, padx=4)
+            evar = tk.StringVar(value="0.000")
+            entry = ttk.Entry(box, textvariable=evar, width=7, justify="right")
+            entry.grid(row=r, column=2, padx=(2, 4))
+            ttk.Label(box, text=f"[±{lim:g}]", foreground="#888").grid(row=r, column=3)
+            # Cùng cách với ô nhập khớp: trace chép slider -> ô, Enter/rời ô thì chốt
+            var.trace_add("write", lambda *_a, k=key: self._car_mirror(k))
+            entry.bind("<Return>", lambda _e, k=key, lim=lim: self._car_commit(k, lim))
+            entry.bind("<FocusOut>", lambda _e, k=key, lim=lim: self._car_commit(k, lim))
+            self.car_vars[key], self.car_evars[key] = var, evar
+            self.car_entries[key] = entry
+            self.car_inputs += [scale, entry]
+
+        self.wheel_lbl = ttk.Label(box, text="", font=("TkFixedFont", 9))
+        self.wheel_lbl.grid(row=2, column=0, columnspan=4, sticky="w", pady=(4, 0))
+
+        bar = ttk.Frame(box)
+        bar.grid(row=3, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        drive_chk = ttk.Checkbutton(
+            bar, text="BẬT lái", variable=self.drive_on, command=self._on_drive_toggle
+        )
+        drive_chk.pack(side="left", padx=(0, 8))
+        zero_btn = ttk.Button(bar, text="0", width=3, command=self._car_zero)
+        zero_btn.pack(side="left", padx=2)
+        stop_btn = ttk.Button(bar, text="DỪNG XE", command=self.stop_drive)
+        stop_btn.pack(side="left", padx=2)
+        ttk.Label(bar, text="   chạy").pack(side="left")
+        self.run_s_var = tk.StringVar(value="4")
+        run_entry = ttk.Entry(bar, textvariable=self.run_s_var, width=4, justify="right")
+        run_entry.pack(side="left")
+        ttk.Label(bar, text="giây").pack(side="left")
+        run_btn = ttk.Button(bar, text="Chạy", command=self._run_for)
+        run_btn.pack(side="left", padx=4)
+        self.car_inputs += [drive_chk, zero_btn, stop_btn, run_entry, run_btn]
+
+        self.armed_lbl = ttk.Label(box, text="○ chưa bật lái", foreground="#888")
+        self.armed_lbl.grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        self.base_lbl = ttk.Label(box, text="—", font=("TkFixedFont", 9), foreground="#555")
+        self.base_lbl.grid(row=5, column=0, columnspan=4, sticky="w")
+        # Nhãn riêng cho thông báo: base_lbl bị ghi đè 5 lần/giây
+        self.car_msg = ttk.Label(box, text="", foreground="#a60")
+        self.car_msg.grid(row=6, column=0, columnspan=4, sticky="w")
+
+        self._car_preview()
+        self._set_car_enabled(False)
+
+    # ---------- xe ----------
+
+    def _car_cmd(self):
+        return self.car_vars["v"].get(), self.car_vars["omega"].get()
+
+    def _car_mirror(self, key, force=False):
+        entry = self.car_entries[key]
+        if force or self.focus_get() is not entry:
+            self.car_evars[key].set(f"{self.car_vars[key].get():.3f}")
+        self._car_preview()
+
+    def _car_commit(self, key, lim):
+        raw = self.car_evars[key].get().strip()
+        try:
+            val = float(raw)
+        except ValueError:
+            self.car_msg.config(text=f"{key}: '{raw}' không phải số", foreground="#c00")
+            self._car_mirror(key, force=True)
+            return
+        clamped = max(-lim, min(lim, val))
+        self.car_vars[key].set(clamped)
+        self._car_mirror(key, force=True)
+        if clamped != val:
+            self.car_msg.config(
+                text=f"{key}: {val} ngoài ±{lim:g} → dùng {clamped:g}", foreground="#a60"
+            )
+
+    def _car_preview(self):
+        """Bánh DỰ KIẾN tính ngay trên laptop, để so với số server báo về."""
+        cfg = self.car_cfg
+        v, omega = diff_drive.clamp_body(cfg, *self._car_cmd())
+        left, right = diff_drive.saturate_wheels(cfg, *diff_drive.body_to_wheels(cfg, v, omega))
+        raw_l, raw_r = diff_drive.wheels_to_raw(cfg, left, right)
+        self.wheel_lbl.config(
+            text=f"bánh dự kiến  L {left:+.2f}  R {right:+.2f} rad/s   raw {raw_l:+5d} / {raw_r:+5d}"
+        )
+
+    def _set_car_enabled(self, on):
+        for widget in self.car_inputs:
+            widget.config(state="normal" if on else "disabled")
+
+    def _car_zero(self):
+        self.run_until = None
+        for var in self.car_vars.values():
+            var.set(0.0)
+
+    def _arm_drive(self):
+        """Xin lại vé CAR (cùng mode -> không bị gác bub): server bật quyền lái, seq đếm lại."""
+        ok = self._set_mode("CAR")
+        self.drive_on.set(ok)
+        return ok
+
+    def _on_drive_toggle(self):
+        if self.drive_on.get():
+            self._arm_drive()
+        else:
+            self.stop_drive()
+
+    def stop_drive(self):
+        """DỪNG XE: server ghi 0 ngay (không ramp) và thu hồi quyền lái. Không cần vé."""
+        self.drive_on.set(False)
+        self.run_until = None
+        resp = self._req({"type": "stop_drive"})
+        if resp and resp.get("status") == "success":
+            self.car_msg.config(text="● đã dừng bánh", foreground="#a60")
+        else:
+            msg = resp.get("message") if resp else "không kết nối được"
+            self.car_msg.config(text=f"⛔ DỪNG XE lỗi: {msg}", foreground="#c00")
+
+    def _run_for(self):
+        """Chạy đúng N giây với v/ω đang đặt, rồi tự về 0. Dùng cho bài đo trên sàn."""
+        try:
+            secs = float(self.run_s_var.get())
+        except ValueError:
+            self.car_msg.config(text="số giây phải là số", foreground="#c00")
+            return
+        if not self.drive_on.get() and not self._arm_drive():
+            return
+        self.run_until = time.time() + secs
+
+    def drive_tick(self):
+        """Gửi drive MỌI tick khi đang bật lái, kể cả số không đổi: mỗi gói là 1 nhịp tim.
+
+        Im quá command_timeout_s (0.25 s) thì watchdog server phanh bánh và thu quyền lái.
+        """
+        if not self.drive_on.get() or self.mode != "CAR" or self.session is None:
+            return
+        if self.run_until is not None:
+            left = self.run_until - time.time()
+            if left <= 0:
+                # Về 0 bằng ramp chứ không phanh gấp: tăng tốc và giảm tốc bù nhau -> quãng đường ≈ v·N
+                self._car_zero()
+                self.car_msg.config(text="● hết giờ — đã về 0", foreground="#0a6")
+            else:
+                self.car_msg.config(text=f"● đang chạy… còn {left:.1f} s", foreground="#06c")
+        v, omega = self._car_cmd()
+        self.seq += 1
+        msg = {"type": "drive", "v": v, "omega": omega, "session": self.session, "seq": self.seq}
+        try:
+            self.push.send_json(msg, zmq.NOBLOCK)
+        except zmq.Again:
+            pass
+
+    def on_base_feedback(self, resp):
+        if not resp or resp.get("status") != "success":
+            self.base_lbl.config(text=f"base_feedback lỗi: {resp}", foreground="#c00")
+            return
+        tl, tr = resp["target_wheels"]
+        cl, cr = resp["current_wheels"]
+        lines = [
+            f"đích  L {tl:+.2f}  R {tr:+.2f} rad/s",
+            f"lệnh  L {cl:+.2f}  R {cr:+.2f} rad/s  (sau ramp)",
+        ]
+        meas = resp.get("measured")
+        if meas:
+            raw_l, raw_r = meas["raw"]
+            lines.append(
+                f"đo    raw {raw_l:+5d} / {raw_r:+5d}   v {meas['v']:+.3f} m/s   ω {meas['omega']:+.3f} rad/s"
+            )
+        else:
+            lines.append("đo    — (đọc bánh lỗi)")
+        age = resp.get("cmd_age_s")
+        lines.append(
+            "chưa có lệnh drive" if age is None else f"lệnh gần nhất cách {age * 1000:.0f} ms"
+        )
+        self.base_lbl.config(text="\n".join(lines), foreground="#555")
+
+        armed = resp.get("drive_armed")
+        if armed:
+            self.armed_lbl.config(text="● đang có quyền lái", foreground="#0a6")
+        elif self.drive_on.get():
+            self.armed_lbl.config(
+                text="⛔ watchdog đã ngắt — tắt rồi bật lại 'BẬT lái'", foreground="#c00"
+            )
+        else:
+            self.armed_lbl.config(text="○ chưa bật lái", foreground="#888")
 
     # ---------- ô nhập tick ----------
 
@@ -546,6 +830,73 @@ class LegPanel(ttk.LabelFrame):
                 text="● chưa BẬT gửi lệnh — số vừa nhập sẽ bị vị trí thật ghi đè",
                 foreground="#a60",
             )
+
+    # ---------- mode + vé ----------
+
+    def claim_session(self):
+        """Mới mở: hỏi server đang ở mode nào rồi xin vé ĐÚNG mode đó (cùng mode -> không bị gác bub)."""
+        resp = self._req({"type": "base_feedback"})
+        if not resp or resp.get("status") != "success":
+            msg = resp.get("message") if resp else "không kết nối được"
+            self.mode_lbl.config(text=f"mode: ? · {msg} — thử lại sau 2 s", foreground="#c00")
+            self.after(2000, self.claim_session)
+            return
+        self._set_mode(resp["mode"])
+
+    def switch_mode(self):
+        target = "BIPEDAL" if self.mode == "CAR" else "CAR"
+        self.enabled.set(False)  # không để lệnh theo bảng cũ bay đi giữa lúc đổi
+        self._set_mode(target)
+
+    def _set_mode(self, mode):
+        resp = self._req({"type": "set_mode", "mode": mode})
+        if not resp:
+            return False
+        if resp.get("status") != "success":
+            self.mode_lbl.config(
+                text=f"mode: {self.mode} · đổi sang {mode} bị từ chối: {resp.get('message')}",
+                foreground="#c00",
+            )
+            return False
+        changed = resp["mode"] != self.mode
+        self.mode, self.session = resp["mode"], resp["session"]
+        self.seq = 0  # vé mới -> server đặt last_seq = -1, đếm lại từ đầu
+        if changed:
+            self._apply_mode_ui()
+        else:
+            # Cùng mode (vd bật lái lại): bảng không đổi -> không tắt gửi lệnh tay
+            self.mode_lbl.config(text=f"mode: {self.mode} · vé {self.session}", foreground="#06c")
+        return True
+
+    def _apply_mode_ui(self):
+        """Đổi bảng giới hạn + dải slider + nút theo self.mode."""
+        car = self.mode == "CAR"
+        self.limits = self.limits_car if car else self.limits_bip
+        for mid, scale in self.scales.items():
+            lo, hi = self.limits[mid]
+            usable = hi - lo >= 50
+            scale.config(from_=lo, to=hi, state="normal" if usable else "disabled")
+            self.entries[mid].config(state="normal" if usable else "disabled")
+            self.range_lbl[mid].config(text=f"[{lo}–{hi}]")
+        self.home_btn.config(state="disabled" if car else "normal")  # server từ chối home ở CAR
+        has_seq = bool(self.transition and "from_car" in self.transition)
+        self.seq_btn.config(state="normal" if car and has_seq else "disabled")
+        self.enable_chk.config(state="normal")
+        self.switch_btn.config(text=f"Đổi sang {'BIPEDAL' if car else 'CAR'}")
+        self.mode_lbl.config(text=f"mode: {self.mode} · vé {self.session}", foreground="#06c")
+        self._set_car_enabled(car)
+        self.poller.want_base = car and self.car_cfg is not None
+        if not car:
+            self.drive_on.set(False)  # server đã dừng bánh khi rời CAR
+            self.run_until = None
+        # Đổi bảng -> tắt gửi; bật lại sẽ đi qua sync_from_robot theo bảng mới
+        self.enabled.set(False)
+        self.sync_from_robot()
+
+    def _move_msg(self, positions):
+        """BIPEDAL -> move, CAR -> arm_move; luôn kèm vé (sai vé thì PUSH bị bỏ im lặng)."""
+        kind = "arm_move" if self.mode == "CAR" else "move"
+        return {"type": kind, "positions": positions, "session": self.session}
 
     # ---------- hành động ----------
 
@@ -645,14 +996,10 @@ class LegPanel(ttk.LabelFrame):
         if out_of_range:
             self.blocked = True
             self.enabled.set(False)
-            worst = max(
-                out_of_range, key=lambda t: min(abs(t[1] - t[2]), abs(t[1] - t[3]))
-            )
+            worst = max(out_of_range, key=lambda t: min(abs(t[1] - t[2]), abs(t[1] - t[3])))
             mid, p, lo, hi = worst
             jump = p - (lo if abs(p - lo) < abs(p - hi) else hi)
-            detail = ", ".join(
-                f"{m} {JOINTS[m]}={p}∉[{lo},{hi}]" for m, p, lo, hi in out_of_range
-            )
+            detail = ", ".join(f"{m} {JOINTS[m]}={p}∉[{lo},{hi}]" for m, p, lo, hi in out_of_range)
             self.status.config(
                 text=f"⛔ LIMIT LỆCH VỚI PI — đã khoá. {detail}. "
                 f"Nếu gửi, {JOINTS[mid]} sẽ giật {abs(jump)} tick ({abs(jump)/4096*360:.0f}°)",
@@ -668,15 +1015,17 @@ class LegPanel(ttk.LabelFrame):
         Gửi lệnh home của server, NHƯNG cảnh báo trước nếu home nằm ngoài
         limit hiện tại - server sẽ clamp và ra tư thế không như mong đợi.
         """
+        if self.mode != "BIPEDAL":
+            # Nút Home đã khoá ở CAR, nhưng "HOME CẢ 2 CHÂN" gọi thẳng hàm này
+            self.status.config(text=f"● bỏ qua Home: đang ở {self.mode}", foreground="#a60")
+            return
         home = HOME_POS.get(self.side)
         if home:
             clamped = []
             for i, mid in enumerate(sorted(JOINTS)):
                 lo, hi = self.limits[mid]
                 if not lo <= home[i] <= hi:
-                    clamped.append(
-                        f"{mid} {JOINTS[mid]}: {home[i]} → {max(lo, min(hi, home[i]))}"
-                    )
+                    clamped.append(f"{mid} {JOINTS[mid]}: {home[i]} → {max(lo, min(hi, home[i]))}")
             if clamped:
                 ok = messagebox.askokcancel(
                     "Home nằm ngoài limit",
@@ -688,7 +1037,11 @@ class LegPanel(ttk.LabelFrame):
                     return
         # Về home LUÔN chạy chậm cho an toàn, bất kể ô speed/accel đang là bao nhiêu.
         self._req({"type": "config", "speed": HOME_SPEED, "acceleration": HOME_ACCEL})
-        self._req({"type": "home"})
+        resp = self._req({"type": "home", "session": self.session})
+        if resp and resp.get("status") != "success":
+            self._restore_config()
+            self.status.config(text=f"● Home bị từ chối: {resp.get('message')}", foreground="#c00")
+            return
         self.status.config(
             text=f"● đang về home (speed {HOME_SPEED}, accel {HOME_ACCEL})…",
             foreground="#a60",
@@ -711,9 +1064,7 @@ class LegPanel(ttk.LabelFrame):
         except ValueError:
             return
         self._req({"type": "config", "speed": speed, "acceleration": accel})
-        self.status.config(
-            text=f"● đã về home — speed trả lại {speed}/{accel}", foreground="#0a6"
-        )
+        self.status.config(text=f"● đã về home — speed trả lại {speed}/{accel}", foreground="#0a6")
 
     def _settle_sync(self, tries, prev=None, on_done=None, moved=False, waited=0):
         """
@@ -742,9 +1093,90 @@ class LegPanel(ttk.LabelFrame):
                 on_done()
             return
 
-        self.after(
-            300, lambda: self._settle_sync(tries - 1, pos, on_done, moved, waited + 1)
+        self.after(300, lambda: self._settle_sync(tries - 1, pos, on_done, moved, waited + 1))
+
+    # ---------- sequence về transition pose ----------
+
+    def start_transition(self):
+        """CAR -> transition pose: đi TỪNG BƯỚC (xong bước này mới sang bước sau) để tay không va chạm."""
+        seq = (self.transition or {}).get("from_car")
+        if self.mode != "CAR" or not seq or self.seq_idx is not None:
+            return
+        if self.last_pos is None:
+            self.seq_lbl.config(text="⛔ chưa có vị trí đo từ robot", foreground="#c00")
+            return
+        # Đích nằm ngoài bảng CAR thì server kẹp lại -> khớp không bao giờ tới -> chặn từ đầu
+        bad = [
+            f"{JOINTS[mid]}→{target}"
+            for step in seq["steps"]
+            for mid, target in step.items()
+            if not self.limits[mid][0] <= target <= self.limits[mid][1]
+        ]
+        if bad:
+            self.seq_lbl.config(text=f"⛔ đích ngoài bảng CAR: {', '.join(bad)}", foreground="#c00")
+            return
+        self.enabled.set(False)  # slider không được giành lệnh với sequence
+        if self.goal is None:
+            self.goal = list(self.last_pos)  # chưa ra lệnh lần nào -> lấy tạm vị trí đo
+        self._req({"type": "config", "speed": seq["speed"], "acceleration": seq["accel"]})
+        self.seq_idx = -1
+        self._seq_next()
+
+    def _seq_step_goal(self):
+        """Đích cả 6 khớp cho bước hiện tại: khớp trong bước đổi đích, khớp khác GIỮ đích cũ."""
+        goal = list(self.goal)
+        for mid, target in self.transition["from_car"]["steps"][self.seq_idx].items():
+            goal[mid - 4] = target
+        return goal
+
+    def _seq_send(self, goal):
+        try:
+            self.push.send_json(self._move_msg(goal), zmq.NOBLOCK)
+        except zmq.Again:
+            pass  # gói rơi -> lần kiểm tra sau gửi lại
+
+    def _seq_next(self):
+        seq = self.transition["from_car"]
+        self.seq_idx += 1
+        if self.seq_idx >= len(seq["steps"]):
+            self._seq_end("✓ đã tới transition pose — giờ đổi mode được", "#0a6")
+            return
+        step = seq["steps"][self.seq_idx]
+        # Chờ tối đa = quãng đường dài nhất / tốc độ + dư: bước dài chờ lâu, bước ngắn chờ ngắn
+        dist = max(abs(target - self.last_pos[mid - 4]) for mid, target in step.items())
+        self.seq_deadline = time.time() + dist / seq["speed"] + seq["margin_s"]
+        self.goal = self._seq_step_goal()
+        self._seq_send(self.goal)
+        self.seq_job = self.after(100, self._seq_check)
+
+    def _seq_check(self):
+        seq = self.transition["from_car"]
+        step = seq["steps"][self.seq_idx]
+        left = {mid: target - self.last_pos[mid - 4] for mid, target in step.items()}
+        if all(abs(d) <= seq["tolerance"] for d in left.values()):
+            self._seq_next()
+            return
+        if time.time() > self.seq_deadline:
+            detail = ", ".join(f"{JOINTS[m]} còn lệch {d:+d}" for m, d in left.items())
+            self._seq_end(f"⛔ bước {self.seq_idx + 1}: quá giờ ({detail}) — đã ghim tay", "#c00")
+            self.stop()
+            return
+        names = " + ".join(f"{JOINTS[m]}→{t}" for m, t in step.items())
+        worst = max(abs(d) for d in left.values())
+        self.seq_lbl.config(
+            text=f"bước {self.seq_idx + 1}/{len(seq['steps'])}: {names} (còn {worst} tick)",
+            foreground="#06c",
         )
+        self._seq_send(self.goal)  # gửi lại cùng đích: vô hại, bù gói PUSH bị rơi
+        self.seq_job = self.after(100, self._seq_check)
+
+    def _seq_end(self, text, color):
+        if self.seq_job is not None:
+            self.after_cancel(self.seq_job)
+        self.seq_job = None
+        self.seq_idx = None
+        self._restore_config()  # trả speed/accel về số trong ô nhập
+        self.seq_lbl.config(text=text, foreground=color)
 
     def stop(self):
         """
@@ -755,15 +1187,15 @@ class LegPanel(ttk.LabelFrame):
         move lần nào, [0]*6 bị clamp thành limit MIN -> toàn bộ khớp lao về biên
         dưới (có khớp giật hơn 100°). Thay vào đó đọc vị trí THẬT rồi ghim lại.
         """
+        if self.seq_idx is not None:
+            self._seq_end("⛔ đã huỷ sequence", "#c00")
         self.enabled.set(False)
         resp = self._req({"type": "feedback"})
         if not resp:
             return
         pos = resp.get("servo_pos", [])
         if len(pos) != 6:
-            self.status.config(
-                text="● DỪNG: không đọc được vị trí, không ghim", foreground="#c00"
-            )
+            self.status.config(text="● DỪNG: không đọc được vị trí, không ghim", foreground="#c00")
             return
 
         # Khớp nào đọc lỗi thì giữ nguyên giá trị slider đang có, KHÔNG bỏ luôn cả
@@ -778,7 +1210,7 @@ class LegPanel(ttk.LabelFrame):
                 bad.append(mid)
                 hold.append(self.vars[mid].get())
         try:
-            self.push.send_json({"type": "move", "positions": hold}, zmq.NOBLOCK)
+            self.push.send_json(self._move_msg(hold), zmq.NOBLOCK)
         except zmq.Again:
             pass
         for mid, val in zip(sorted(JOINTS), hold):
@@ -792,17 +1224,13 @@ class LegPanel(ttk.LabelFrame):
                 foreground="#c00",
             )
         else:
-            self.status.config(
-                text="● ĐÃ DỪNG — ghim tại vị trí hiện tại", foreground="#a60"
-            )
+            self.status.config(text="● ĐÃ DỪNG — ghim tại vị trí hiện tại", foreground="#a60")
 
     def apply_config(self):
         try:
             speed, accel = int(self.speed_var.get()), int(self.accel_var.get())
         except ValueError:
-            self.status.config(
-                text="● speed/accel phải là số nguyên", foreground="#c00"
-            )
+            self.status.config(text="● speed/accel phải là số nguyên", foreground="#c00")
             return
         self._req({"type": "config", "speed": speed, "acceleration": accel})
 
@@ -813,7 +1241,7 @@ class LegPanel(ttk.LabelFrame):
 
     def maybe_send(self):
         """Chỉ gửi khi có thay đổi thật, và không quá SEND_HZ lần/giây."""
-        if self.blocked or not self.enabled.get():
+        if self.blocked or not self.enabled.get() or self.session is None:
             return
         now = time.time()
         if now - self.last_send_t < 1.0 / SEND_HZ:
@@ -822,7 +1250,7 @@ class LegPanel(ttk.LabelFrame):
         if cur == self.last_sent:
             return
         try:
-            self.push.send_json({"type": "move", "positions": cur}, zmq.NOBLOCK)
+            self.push.send_json(self._move_msg(cur), zmq.NOBLOCK)
             self.last_sent = cur
             self.goal = cur  # ghi nhớ ĐÍCH đã ra lệnh
             self.last_send_t = now
@@ -833,9 +1261,14 @@ class LegPanel(ttk.LabelFrame):
         if kind == "err":
             self.status.config(text=f"● mất kết nối: {resp}", foreground="#c00")
             return
+        if kind == "base":
+            self.on_base_feedback(resp)
+            return
 
         self.recv_count += 1
         payload = resp.get("servo_pos", []) if isinstance(resp, dict) else resp
+        if len(payload) == 6 and all(p > 0 for p in payload):
+            self.last_pos = list(payload)
 
         # Quaternion thô từ IMU, để panel 3D dùng
         quat = resp.get("quat", []) if isinstance(resp, dict) else []
@@ -856,11 +1289,21 @@ class LegPanel(ttk.LabelFrame):
                 lo, hi = self.limits[mid]
                 self.vars[mid].set(max(lo, min(hi, payload[i])))
             self.last_sent = self._current()
-            self.status.config(
-                text="● đã kết nối — slider đang bám robot", foreground="#0a6"
-            )
+            self.status.config(text="● đã kết nối — slider đang bám robot", foreground="#0a6")
         else:
             self.status.config(text="● đã kết nối", foreground="#0a6")
+
+        # Nút đổi mode chỉ sáng khi bub THẬT nằm trong vùng chuyển (server cũng kiểm lại)
+        if payload and payload[0] > 0:
+            bub = payload[0]
+            in_zone = self.trans_lo <= bub <= self.trans_hi
+            # Đang chạy sequence thì khoá: bước 3 đi qua bub=3200 (trong vùng) nhưng tay chưa xong
+            can_switch = self.session and in_zone and self.seq_idx is None
+            self.switch_btn.config(state="normal" if can_switch else "disabled")
+            self.zone_lbl.config(
+                text=f"bub {bub} {'✓' if in_zone else '✗'} vùng {self.trans_lo}–{self.trans_hi}",
+                foreground="#0a6" if in_zone else "#888",
+            )
 
         for i, mid in enumerate(sorted(JOINTS)):
             if i < len(payload):
@@ -871,6 +1314,8 @@ class LegPanel(ttk.LabelFrame):
                 )
 
     def shutdown(self):
+        if self.mode == "CAR":
+            self.stop_drive()  # đóng cửa sổ giữa lúc lái -> phanh trước, không chờ watchdog
         self.poller.running = False
         self.push.close()
         self.req.close()
@@ -937,18 +1382,14 @@ class App(tk.Tk):
         """Chờ tới khi cả 2 chân báo xong rồi mới xoá dòng trạng thái chung."""
         busy = [p.side for p in self.panels if "đang về home" in p.status.cget("text")]
         if busy:
-            self.all_status.config(
-                text=f"đang đưa {' + '.join(busy)} về home…", foreground="#a60"
-            )
+            self.all_status.config(text=f"đang đưa {' + '.join(busy)} về home…", foreground="#a60")
             self.after(400, self._watch_home_all)
         else:
             self.all_status.config(text="✓ cả 2 chân đã về home", foreground="#0a6")
 
     def _build_orientation_row(self):
         """Hàng dưới: 3 cục phẳng 3D thể hiện orientation đọc từ IMU."""
-        box = ttk.LabelFrame(
-            self, text="Orientation từ IMU (khung baselink, đã bỏ yaw)", padding=8
-        )
+        box = ttk.LabelFrame(self, text="Orientation từ IMU (khung baselink, đã bỏ yaw)", padding=8)
         box.grid(row=3, column=0, columnspan=2, padx=8, pady=(0, 8), sticky="we")
 
         self.views = {}
@@ -974,9 +1415,7 @@ class App(tk.Tk):
         raw = {p.side: p.last_quat for p in self.panels}
 
         # Đưa về khung baselink rồi bỏ yaw -> hai chân so sánh được với nhau
-        proc = {
-            side: strip_yaw(to_baselink(q)) if q else None for side, q in raw.items()
-        }
+        proc = {side: strip_yaw(to_baselink(q)) if q else None for side, q in raw.items()}
         left, right = proc.get("LEFT"), proc.get("RIGHT")
         proc["FUSED"] = q_fuse(left, right) if left and right else (left or right)
 
@@ -985,9 +1424,7 @@ class App(tk.Tk):
             self.views[name].draw(q)
             if q:
                 r, p, _ = q_to_euler_deg(q)
-                self.view_lbl[name].config(
-                    text=f"R{r:+6.2f}°  P{p:+6.2f}°", foreground="#333"
-                )
+                self.view_lbl[name].config(text=f"R{r:+6.2f}°  P{p:+6.2f}°", foreground="#333")
 
         # Lệch pitch giữa 2 chân - con số đang phải theo dõi
         if left and right:
@@ -1011,6 +1448,7 @@ class App(tk.Tk):
 
     def tick(self):
         for panel in self.panels:
+            panel.drive_tick()
             panel.maybe_send()
         while True:
             try:

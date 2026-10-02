@@ -396,6 +396,9 @@ diện → `yaw = 0`. Bỏ lật thì head-on ra 180° (2 version luôn lệch �
 **Hệ quả:** `yaw` giờ là góc nghiêng sạch (0 ở chính diện) → dựng `ψ` thẳng từ nó, khỏi cần `R` gốc:
 `ψ = wrap(180° ± yaw)` (head-on `yaw=0 → ψ=180°`). Log cũ (cột `yaw_deg`) **dùng lại được** cho `ψ`.
 
+**✅ Đã chốt dấu (2026-10-02):** tag sang phải → `X` dương; tag xoay cùng chiều kim đồng hồ (nhìn từ trên) → `Yaw` dương.
+⇒ `ψ = wrap(180° − yaw)`, `θ_d = −yaw`, `Left = −x`. Chi tiết: PROGRESS_ROBOT_MODE.md §8.1.
+
 ⚠️ Head-on = 0 chỉ chốt vụ **180°**, CHƯA chốt **DẤU** (chính diện là điểm đối xứng). Còn 1 test:
 xoay tag chiều đã biết → dấu `yaw` + dấu `±` trong `ψ` chốt cùng lúc. `X=tvec[0]` không dính lật (`tvec` tách khỏi `R`).
 

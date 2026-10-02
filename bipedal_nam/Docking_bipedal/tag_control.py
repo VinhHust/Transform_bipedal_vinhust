@@ -50,7 +50,7 @@ print(f"[LOG] Ghi vào {log_path}")
 t0 = time.time()
 frame_idx = 0
 
-TAG_SIZE = 0.034  # m
+TAG_SIZE = 0.040  # m
 half_size = TAG_SIZE / 2
 object_points = np.array(
     [
@@ -106,9 +106,7 @@ while True:
             recovery_mode = False  # reset recovery if tag found
 
             corners = tag.corners.astype(np.float32)
-            success, rvec, tvec = cv2.solvePnP(
-                object_points, corners, camera_matrix, dist_coeffs
-            )
+            success, rvec, tvec = cv2.solvePnP(object_points, corners, camera_matrix, dist_coeffs)
 
             if success:
                 # KIỂM TRA LẠI PHẦN NÀY
@@ -208,9 +206,7 @@ while True:
         log_writer.writerow([f"{t_now:.3f}", frame_idx, 0] + [""] * 12 + [control_text])
 
     if SHOW:
-        cv2.putText(
-            frame, control_text, (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2
-        )
+        cv2.putText(frame, control_text, (30, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 0), 2)
         cv2.imshow("AprilTag Docking", frame)
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break

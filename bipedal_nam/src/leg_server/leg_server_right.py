@@ -17,6 +17,9 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from bipedal_robot.bipedal import BipedalRobot, BipedalConfig
+from bipedal_robot.car_mode.diff_drive import load_config
+from bipedal_robot.car_mode.mode_controller import ModeController, RobotMode
+from bipedal_robot.car_mode.transition import check_mode_change, mode_from_bub, transition_range
 
 # Configure logging
 logging.basicConfig(
@@ -133,15 +136,28 @@ class MCUServer:
         self.servo_speed = 1000  # Goal velocity (like WritePosEx speed param)
         self.servo_accel = 254  # Acceleration (like WritePosEx acceleration param)
 
-        # SỬA LẠI THEO CÁI ĐÃ CALIB TRONG APP FD
-        self.servo_limits = {
-            4: {"min": 1950, "max": 3100},
-            5: {"min": 1700, "max": 2420},
-            6: {"min": 1030, "max": 3060},
-            7: {"min": 1045, "max": 3100},
-            8: {"min": 1385, "max": 2680},
-            9: {"min": 1873, "max": 2641},
+        # Đo 30/9. Giới hạn cứng ghi trên FD = hợp 2 bảng (bub 2000–4050).
+        # 2 mode chỉ khác bub (ID 4); đổi mode khi bub ở vùng giao 3095–3200, khớp khác ở home.
+        self.servo_limits = {  # BIPEDAL
+            4: {"min": 2000, "max": 3200},
+            5: {"min": 1700, "max": 2400},
+            6: {"min": 1040, "max": 3060},
+            7: {"min": 900, "max": 3200},
+            8: {"min": 1400, "max": 2600},
+            9: {"min": 1870, "max": 2800},
         }
+        # Viết literal đầy đủ (không dùng **) để sliderUI đọc được bằng ast.literal_eval.
+        self.servo_limits_car = {  # CAR: tay gắp
+            4: {"min": 3095, "max": 4050},
+            5: {"min": 1700, "max": 2400},
+            6: {"min": 1040, "max": 3060},
+            7: {"min": 900, "max": 3200},
+            8: {"min": 1400, "max": 2600},
+            9: {"min": 1870, "max": 2800},
+        }
+
+        # vùng giao giữa 2 bảng (vùng giao bub) để làm change mode
+        self.transition_range = transition_range(self.servo_limits, self.servo_limits_car)
 
         # SỬA: Current positions CHỈ 6 servos (motor 4-9)
         self.current_positions = [0] * 6  # 6 slots
@@ -187,6 +203,9 @@ class MCUServer:
         self.imu_lock = threading.Lock()  # THÊM: Cho IMU data
         self.serial_lock = threading.Lock()
 
+        # Bộ não mode CAR/BIPEDAL. Tạo trong init_robot() vì ở đây robot vẫn là None.
+        self.mode_ctrl = None
+
         logger.info(f"MCUServer initialized (6 leg servos 4-9) on port {zmq_port}")
 
     def init_zmq(self) -> bool:
@@ -221,6 +240,15 @@ class MCUServer:
             self.robot.connect()
             self.robot.configure()
 
+            # configure() vừa ghi bánh = 0 -> giờ mới tạo bộ não mode (cần bus).
+            # Thiếu/lỗi config bánh: vẫn chạy BIPEDAL, chỉ từ chối sang CAR.
+            try:
+                wheel_cfg = load_config("right")
+            except Exception as e:
+                wheel_cfg = None
+                logger.warning(f"Không đọc được config bánh -> chỉ chạy BIPEDAL: {e}")
+            self.mode_ctrl = ModeController(self.robot.bus, wheel_cfg, self.serial_lock)
+
             logger.info("✓ Robot connected and configured")
             logger.info(f"✓ Available motors: {list(self.robot.bus.motors.keys())}")
 
@@ -254,6 +282,10 @@ class MCUServer:
                     logger.error("   - Serial port mismatch")
                     logger.error("   - Motor names not matching config")
                     return False
+
+            # chọn mode lúc khởi động theo bub
+            self.mode_ctrl.mode = mode_from_bub(current_pos[0], *self.transition_range)
+            logger.info(f"✓ Mode lúc khởi động (bub={current_pos[0]}): {self.mode_ctrl.mode.value}")
 
             logger.info(f"✓ Initial positions: {current_pos}")
             logger.info("✅ Robot initialization complete")
@@ -399,6 +431,14 @@ class MCUServer:
             logger.error(f"Error packing state data: {e}")
             return b""
 
+    # HÀM XÂY DỰNG ĐỂ CHỌN MODE, NẾU Ở MODE NÀO THÌ LẤY GIỚI HẠN CỦA MODE ĐÓ
+    def active_servo_limits(self) -> Dict:
+        """Bảng giới hạn khớp theo mode hiện tại. Theo mode chứ không theo loại lệnh,
+        vì "stop" chạy ở cả 2 mode: ở CAR mà kẹp theo bảng BIPEDAL thì bub bị kéo về 3200."""
+        if self.mode_ctrl and self.mode_ctrl.mode is RobotMode.CAR:
+            return self.servo_limits_car
+        return self.servo_limits
+
     def apply_new_positions(self, positions: List[int]) -> bool:
         """
          SỬA: Ghi vị trí với write_lock (ngắn hơn).
@@ -475,6 +515,7 @@ class MCUServer:
             target_dict = {}
             success_count = 0
             fail_count = 0
+            servo_limits = self.active_servo_limits()
 
             for servo_id in range(4, 10):
                 motor_name = self.servo_map[servo_id]
@@ -486,7 +527,7 @@ class MCUServer:
                     fail_count += 1
                     continue
 
-                limits = self.servo_limits[servo_id]
+                limits = servo_limits[servo_id]
                 clamped_pos = max(limits["min"], min(limits["max"], target_pos))
                 target_dict[motor_name] = clamped_pos
 
@@ -557,6 +598,11 @@ class MCUServer:
         try:
             cmd_type = command.get("type")
 
+            # Trạm gác mode: move/home/arm_move sai mode hoặc sai vé thì dừng ở đây.
+            reason = self.mode_ctrl.check_command(command)
+            if reason:
+                return {"status": "error", "message": reason}
+
             if cmd_type == "move":
                 positions = command.get("positions", [])
                 success = self.apply_new_positions(positions)
@@ -591,7 +637,7 @@ class MCUServer:
                 }
 
             elif cmd_type == "home":
-                home_pos = [1989, 2070, 2052, 2036, 2133, 2048]
+                home_pos = [2048] * 6
                 success = self.apply_new_positions(home_pos)
                 return {
                     "status": "success" if success else "error",
@@ -618,6 +664,34 @@ class MCUServer:
                     "status": "success",
                     "message": f"Config updated: speed={self.servo_speed}, accel={self.servo_accel}",
                 }
+
+            elif cmd_type == "arm_move":
+                # Khớp 4–9 làm tay gắp ở CAR: cùng hàm ghi vị trí, kẹp theo servo_limits_car.
+                success = self.apply_new_positions(command.get("positions", []))
+                return {
+                    "status": "success" if success else "error",
+                    "current_positions": self.target_positions,
+                }
+
+            elif cmd_type == "set_mode":  # lấy command mode để chuyển sang car hoặc bipedal
+                with self.read_lock:
+                    bub = self.state_data["servo_pos"][0]
+                reason = check_mode_change(
+                    self.mode_ctrl.mode, command.get("mode"), bub, *self.transition_range
+                )
+                if reason:
+                    return {"status": "error", "message": reason}
+                return self.mode_ctrl.set_mode(command.get("mode"))
+
+            elif cmd_type == "drive":  # chuyển toàn bộ command sang drive để ghi vel
+                return self.mode_ctrl.drive(command)
+
+            elif cmd_type == "stop_drive":
+                return self.mode_ctrl.stop_drive()
+
+            # feedback về cho UI biết đang ở mode nào
+            elif cmd_type == "base_feedback":
+                return self.mode_ctrl.feedback()
 
             else:
                 return {
@@ -745,15 +819,23 @@ class MCUServer:
                     try:
                         command = self.socket_pull.recv_json()
                         logger.debug(f"PUSH: {command}")
-                        # SỬA: Chỉ process move commands (không cần response)
-                        if command.get("type") == "move":
-                            positions = command.get("positions", [])
-                            self.apply_new_positions(positions)
-                            logger.info(f"✓ Async move applied: {positions}")
+                        # PULL = lệnh bắn liên tục, không cần trả lời. Đi chung trạm gác với REQ.
+                        if command.get("type") in ("move", "drive", "arm_move"):
+                            result = self.process_command(command)
+                            if result.get("status") != "success":
+                                logger.debug(f"PUSH rejected: {result}")
+
                     except zmq.Again:
                         pass
                     except Exception as e:
                         logger.error(f"PUSH/PULL error: {e}")
+
+                # Người lái bánh: gọi MỖI vòng. poll() chờ tối đa 10 ms nên vòng này
+                # vẫn quay đều khi mạng im lặng -> timeout mới phát hiện được mất lệnh.
+                try:
+                    self.mode_ctrl.tick()
+                except Exception as e:
+                    logger.error(f"Wheel tick error: {e}")
 
         except KeyboardInterrupt:
             logger.info("Server interrupted by user")
@@ -769,6 +851,10 @@ class MCUServer:
         if getattr(self, "_shutdown_done", False):
             return
         self._shutdown_done = True
+
+        # Dừng bánh TRƯỚC mọi bước chờ bên dưới
+        if self.mode_ctrl:
+            self.mode_ctrl.stop_drive()
 
         self.running = False
 

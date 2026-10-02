@@ -16,7 +16,6 @@
 
 import logging
 from typing import Any, Dict
-import numpy as np
 
 from lerobot.motors import Motor, MotorNormMode
 from lerobot.motors.feetech import (
@@ -24,6 +23,7 @@ from lerobot.motors.feetech import (
     OperatingMode,
 )
 from lerobot.utils.errors import DeviceAlreadyConnectedError, DeviceNotConnectedError
+from .car_mode import wheel_bus  # import file wheel_bus từ car_mode
 
 logger = logging.getLogger(__name__)
 
@@ -126,144 +126,11 @@ class BipedalRobot:
 
         for name in self.base_motors:
             self.bus.write("Operating_Mode", name, OperatingMode.VELOCITY.value)
-
+        self.stop_base()
         self.bus.enable_torque()
 
-    @staticmethod
-    def _degps_to_raw(degps: float) -> int:
-        steps_per_deg = 4096.0 / 360.0
-        speed_in_steps = degps * steps_per_deg
-        speed_int = int(round(speed_in_steps))
-        # Cap the value to fit within signed 16-bit range (-32768 to 32767)
-        if speed_int > 0x7FFF:
-            speed_int = 0x7FFF  # 32767 -> maximum positive value
-        elif speed_int < -0x8000:
-            speed_int = -0x8000  # -32768 -> minimum negative value
-        return speed_int
-
-    @staticmethod
-    def _raw_to_degps(raw_speed: int) -> float:
-        steps_per_deg = 4096.0 / 360.0
-        magnitude = raw_speed
-        degps = magnitude / steps_per_deg
-        return degps
-
-    def _body_to_wheel_raw(
-        self,
-        x: float,
-        y: float,
-        theta: float,
-        wheel_radius: float = 0.05,
-        base_radius: float = 0.125,
-        max_raw: int = 3000,
-    ) -> dict:
-        """
-        Convert desired body-frame velocities into wheel raw commands.
-
-        Parameters:
-          x_cmd      : Linear velocity in x (m/s).
-          y_cmd      : Linear velocity in y (m/s).
-          theta_cmd  : Rotational velocity (deg/s).
-          wheel_radius: Radius of each wheel (meters).
-          base_radius : Distance from the center of rotation to each wheel (meters).
-          max_raw    : Maximum allowed raw command (ticks) per wheel.
-
-        Returns:
-          A dictionary with wheel raw commands:
-             {"base_left_wheel": value, "base_back_wheel": value, "base_right_wheel": value}.
-
-        Notes:
-          - Internally, the method converts theta_cmd to rad/s for the kinematics.
-          - The raw command is computed from the wheels angular speed in deg/s
-            using _degps_to_raw(). If any command exceeds max_raw, all commands
-            are scaled down proportionally.
-        """
-        # Convert rotational velocity from deg/s to rad/s.
-        theta_rad = theta * (np.pi / 180.0)
-        # Create the body velocity vector [x, y, theta_rad].
-        velocity_vector = np.array([x, y, theta_rad])
-
-        # Define the wheel mounting angles with a -90° offset.
-        angles = np.radians(np.array([240, 0, 120]) - 90)
-        # Build the kinematic matrix: each row maps body velocities to a wheel’s linear speed.
-        # The third column (base_radius) accounts for the effect of rotation.
-        m = np.array([[np.cos(a), np.sin(a), base_radius] for a in angles])
-
-        # Compute each wheel’s linear speed (m/s) and then its angular speed (rad/s).
-        wheel_linear_speeds = m.dot(velocity_vector)
-        wheel_angular_speeds = wheel_linear_speeds / wheel_radius
-
-        # Convert wheel angular speeds from rad/s to deg/s.
-        wheel_degps = wheel_angular_speeds * (180.0 / np.pi)
-
-        # Scaling
-        steps_per_deg = 4096.0 / 360.0
-        raw_floats = [abs(degps) * steps_per_deg for degps in wheel_degps]
-        max_raw_computed = max(raw_floats)
-        if max_raw_computed > max_raw:
-            scale = max_raw / max_raw_computed
-            wheel_degps = wheel_degps * scale
-
-        # Convert each wheel’s angular speed (deg/s) to a raw integer.
-        wheel_raw = [self._degps_to_raw(deg) for deg in wheel_degps]
-
-        return {
-            "base_left_wheel": wheel_raw[0],
-            "base_back_wheel": wheel_raw[1],
-            "base_right_wheel": wheel_raw[2],
-        }
-
-    def _wheel_raw_to_body(
-        self,
-        left_wheel_speed,
-        back_wheel_speed,
-        right_wheel_speed,
-        wheel_radius: float = 0.05,
-        base_radius: float = 0.125,
-    ) -> dict[str, Any]:
-        """
-        Convert wheel raw command feedback back into body-frame velocities.
-
-        Parameters:
-          wheel_raw   : Vector with raw wheel commands ("base_left_wheel", "base_back_wheel", "base_right_wheel").
-          wheel_radius: Radius of each wheel (meters).
-          base_radius : Distance from the robot center to each wheel (meters).
-
-        Returns:
-          A dict (x.vel, y.vel, theta.vel) all in m/s
-        """
-
-        # Convert each raw command back to an angular speed in deg/s.
-        wheel_degps = np.array(
-            [
-                self._raw_to_degps(left_wheel_speed),
-                self._raw_to_degps(back_wheel_speed),
-                self._raw_to_degps(right_wheel_speed),
-            ]
-        )
-
-        # Convert from deg/s to rad/s.
-        wheel_radps = wheel_degps * (np.pi / 180.0)
-        # Compute each wheel’s linear speed (m/s) from its angular speed.
-        wheel_linear_speeds = wheel_radps * wheel_radius
-
-        # Define the wheel mounting angles with a -90° offset.
-        angles = np.radians(np.array([240, 0, 120]) - 90)
-        m = np.array([[np.cos(a), np.sin(a), base_radius] for a in angles])
-
-        # Solve the inverse kinematics: body_velocity = M⁻¹ · wheel_linear_speeds.
-        m_inv = np.linalg.inv(m)
-        velocity_vector = m_inv.dot(wheel_linear_speeds)
-        x, y, theta_rad = velocity_vector
-        theta = theta_rad * (180.0 / np.pi)
-        return {
-            "x.vel": x,
-            "y.vel": y,
-            "theta.vel": theta,
-        }  # m/s and deg/s
-
     def stop_base(self):
-        self.bus.sync_write("Goal_Velocity", dict.fromkeys(self.base_motors, 0), num_retry=5)
+        wheel_bus.stop(self.bus)
         logger.info("Base motors stopped")
 
     def write_pos_ex(

@@ -18,6 +18,8 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from bipedal_robot.bipedal_left import BipedalRobot, BipedalConfig
+from bipedal_robot.car_mode.diff_drive import load_config
+from bipedal_robot.car_mode.mode_controller import ModeController
 
 # Configure logging.
 # force=True la BAT BUOC: dong import lerobot o tren da gan san mot handler vao
@@ -195,6 +197,9 @@ class MCUServerLeft:
         self.imu_lock = threading.Lock()
         self.serial_lock = threading.Lock()
 
+        # Bộ não mode CAR/BIPEDAL. Tạo trong init_robot() vì ở đây robot vẫn là None.
+        self.mode_ctrl = None
+
         logger.info(f"MCUServerLeft initialized (6 LEFT leg servos 4-9) on port {zmq_port}")
 
     def init_zmq(self) -> bool:
@@ -225,6 +230,15 @@ class MCUServerLeft:
             self.robot = BipedalRobot(self.config)
             self.robot.connect()
             self.robot.configure()
+
+            # configure() vừa ghi bánh = 0 -> giờ mới tạo bộ não mode (cần bus).
+            # Thiếu/lỗi config bánh: vẫn chạy BIPEDAL, chỉ từ chối sang CAR.
+            try:
+                wheel_cfg = load_config("left")
+            except Exception as e:
+                wheel_cfg = None
+                logger.warning(f"Không đọc được config bánh -> chỉ chạy BIPEDAL: {e}")
+            self.mode_ctrl = ModeController(self.robot.bus, wheel_cfg, self.serial_lock)
 
             logger.info("✓ Robot (LEFT leg) connected and configured")
             logger.info(f"✓ Available motors: {list(self.robot.bus.motors.keys())}")
@@ -464,6 +478,11 @@ class MCUServerLeft:
         try:
             cmd_type = command.get("type")
 
+            # Trạm gác mode: move/home/arm_move sai mode hoặc sai vé thì dừng ở đây.
+            reason = self.mode_ctrl.check_command(command)
+            if reason:
+                return {"status": "error", "message": reason}
+
             if cmd_type == "move":
                 positions = command.get("positions", [])
                 success = self.apply_new_positions(positions)
@@ -527,6 +546,26 @@ class MCUServerLeft:
                     "status": "success",
                     "message": f"Config updated: speed={self.servo_speed}, accel={self.servo_accel}",
                 }
+
+            elif cmd_type == "arm_move":
+                # Khớp 4–9 làm tay gắp ở CAR: cùng hàm ghi vị trí, cùng giới hạn khớp như move.
+                success = self.apply_new_positions(command.get("positions", []))
+                return {
+                    "status": "success" if success else "error",
+                    "current_positions": self.target_positions,
+                }
+
+            elif cmd_type == "set_mode":  # lấy command mode để chuyển sang car hoặc bipedal
+                return self.mode_ctrl.set_mode(command.get("mode"))
+
+            elif cmd_type == "drive":  # chuyển toàn bộ command sang drive để ghi vel
+                return self.mode_ctrl.drive(command)
+
+            elif cmd_type == "stop_drive":
+                return self.mode_ctrl.stop_drive()
+
+            elif cmd_type == "base_feedback":
+                return self.mode_ctrl.feedback()
 
             else:
                 return {
@@ -651,15 +690,23 @@ class MCUServerLeft:
                     try:
                         command = self.socket_pull.recv_json()
                         logger.debug(f"PUSH: {command}")
-                        # SỬA: Chỉ process move commands (không cần response)
-                        if command.get("type") == "move":
-                            positions = command.get("positions", [])
-                            self.apply_new_positions(positions)
-                            logger.debug(f"Async move applied: {positions}")
+                        # PULL = lệnh bắn liên tục, không cần trả lời. Đi chung trạm gác với REQ.
+                        if command.get("type") in ("move", "drive", "arm_move"):
+                            result = self.process_command(command)
+                            if result.get("status") != "success":
+                                logger.debug(f"PUSH rejected: {result}")
+
                     except zmq.Again:
                         pass
                     except Exception as e:
                         logger.error(f"PUSH/PULL error: {e}")
+
+                # Người lái bánh: gọi MỖI vòng. poll() chờ tối đa 10 ms nên vòng này
+                # vẫn quay đều khi mạng im lặng -> timeout mới phát hiện được mất lệnh.
+                try:
+                    self.mode_ctrl.tick()
+                except Exception as e:
+                    logger.error(f"Wheel tick error: {e}")
 
         except KeyboardInterrupt:
             logger.info("Server interrupted by user")
@@ -675,6 +722,10 @@ class MCUServerLeft:
         if self._shutdown_done:
             return
         self._shutdown_done = True
+
+        # Dừng bánh TRƯỚC mọi bước chờ bên dưới
+        if self.mode_ctrl:
+            self.mode_ctrl.stop_drive()
 
         self.running = False
 
